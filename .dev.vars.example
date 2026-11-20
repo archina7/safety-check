@@ -1,3 +1,12 @@
 # 로컬 비밀값. 이 파일을 .dev.vars 로 복사해서 값을 채운다 (.dev.vars 는 커밋하지 않는다).
-# 현재 버전은 필요한 값이 없다. 로그인 기능을 붙이면 아래 값을 쓴다.
-# SESSION_SECRET=
+# 하나라도 비어 있거나 SESSION_SECRET 이 32자 미만이면 서버가 모든 요청을 503 으로 막는다.
+
+# Google Cloud Console > API 및 서비스 > 사용자 인증 정보 > OAuth 2.0 클라이언트 ID (웹 애플리케이션)
+# 승인된 JavaScript 원본에 http://localhost:8788 과 배포 주소 https://safety-check-ezs.pages.dev를 넣는다.
+GOOGLE_CLIENT_ID=
+
+# 접속을 허용할 구글 이메일, 쉼표로 구분
+ALLOWED_EMAILS=
+
+# 세션 쿠키 서명용 임의 문자열 32자 이상. 예: node -e "console.log(crypto.randomBytes(32).toString('hex'))"
+SESSION_SECRET=

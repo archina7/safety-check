@@ -3,8 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#1f2a37">
+  <meta name="theme-color" content="#212121">
   <title>현장 안전점검</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="안전점검">
+  <meta name="mobile-web-app-capable" content="yes">
   <style>
     :root {
       --bg: #f3f4f6;
@@ -12,7 +17,7 @@
       --ink: #111827;
       --ink-soft: #4b5563;
       --line: #d1d5db;
-      --brand: #1f2a37;
+      --brand: #212121;
       --accent: #f59e0b;
       --ok: #15803d;
       --ok-bg: #f0fdf4;
@@ -91,6 +96,40 @@
     }
 
     .count.done strong { color: #4ade80; }
+
+    .user {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      font-size: 0.875rem;
+      color: #cbd5e1;
+    }
+
+    .user > span { min-width: 0; }
+
+    .user .actions { flex: none; display: flex; gap: 8px; }
+
+    .user .install {
+      margin: 0;
+      padding: 0 14px;
+      background: var(--accent);
+      color: #212121;
+      font-size: 0.875rem;
+    }
+
+    .user .install[hidden] { display: none; }
+
+    .user .logout {
+      flex: none;
+      margin: 0;
+      padding: 0 14px;
+      background: transparent;
+      border: 1px solid rgb(255 255 255 / 0.35);
+      color: #fff;
+      font-size: 0.875rem;
+    }
 
     .bar {
       height: 6px;
@@ -268,6 +307,13 @@
       </div>
       <p class="count" id="count" aria-live="polite">완료 <strong id="done">0</strong> / <span id="total">6</span></p>
     </div>
+    <div class="wrap user">
+      <span id="who"></span>
+      <span class="actions">
+        <button type="button" class="install" id="install" hidden>앱 설치</button>
+        <button type="button" class="logout" id="logout">로그아웃</button>
+      </span>
+    </div>
     <div class="wrap">
       <div class="bar" id="bar" role="progressbar" aria-label="점검 진행률" aria-valuemin="0" aria-valuemax="6" aria-valuenow="0"><span></span></div>
     </div>
@@ -299,117 +345,6 @@
     </li>
   </template>
 
-  <script>
-    const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-    let items = [];
-    let today = '';
-
-    // 기기 시간 기준 오늘 날짜 (YYYY-MM-DD)
-    function localDateKey(d = new Date()) {
-      const p = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-    }
-
-    function storageKey() { return `safety-check:${today}`; }
-
-    function loadChecked() {
-      try {
-        const raw = localStorage.getItem(storageKey());
-        return new Set(raw ? JSON.parse(raw) : []);
-      } catch {
-        return new Set();
-      }
-    }
-
-    function saveChecked(set) {
-      try {
-        localStorage.setItem(storageKey(), JSON.stringify([...set]));
-      } catch {
-        // 저장 불가(사생활 보호 모드 등) — 화면 체크는 그대로 둔다
-      }
-    }
-
-    function showDate() {
-      const d = new Date();
-      document.getElementById('date').textContent =
-        `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${WEEKDAYS[d.getDay()]}요일`;
-    }
-
-    function updateCount() {
-      const checked = loadChecked();
-      const done = items.filter((it) => checked.has(it.id)).length;
-      const total = items.length;
-      const allDone = total > 0 && done === total;
-
-      document.getElementById('done').textContent = done;
-      document.getElementById('total').textContent = total;
-      document.getElementById('count').classList.toggle('done', allDone);
-
-      const bar = document.getElementById('bar');
-      bar.classList.toggle('done', allDone);
-      bar.setAttribute('aria-valuemax', total);
-      bar.setAttribute('aria-valuenow', done);
-      bar.firstElementChild.style.width = total ? `${(done / total) * 100}%` : '0';
-
-      document.getElementById('notice').hidden = !allDone;
-    }
-
-    function render() {
-      const list = document.getElementById('list');
-      const tpl = document.getElementById('item');
-      const checked = loadChecked();
-      list.replaceChildren();
-
-      for (const it of items) {
-        const node = tpl.content.cloneNode(true);
-        const input = node.querySelector('input');
-        input.checked = checked.has(it.id);
-        input.addEventListener('change', () => {
-          const set = loadChecked();
-          input.checked ? set.add(it.id) : set.delete(it.id);
-          saveChecked(set);
-          updateCount();
-        });
-        node.querySelector('.tag').textContent = it.category;
-        node.querySelector('.content').textContent = it.content;
-        node.querySelector('.law').textContent = `근거: ${it.law}`;
-        list.append(node);
-      }
-
-      list.hidden = false;
-      updateCount();
-    }
-
-    async function load() {
-      const state = document.getElementById('state');
-      state.hidden = false;
-      state.textContent = '점검 항목을 불러오는 중입니다…';
-      try {
-        const res = await fetch('/api/inspections', { headers: { Accept: 'application/json' } });
-        if (!res.ok) throw new Error(String(res.status));
-        items = (await res.json()).items;
-        state.hidden = true;
-        render();
-      } catch {
-        state.replaceChildren(
-          Object.assign(document.createElement('p'), { textContent: '점검 항목을 불러오지 못했습니다. 연결 상태를 확인해 주세요.' }),
-          Object.assign(document.createElement('button'), { type: 'button', textContent: '다시 시도', onclick: load }),
-        );
-      }
-    }
-
-    // 날짜가 바뀐 채로 화면을 다시 열면 새 날짜의 체크 상태로 바꾼다
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && localDateKey() !== today) {
-        today = localDateKey();
-        showDate();
-        if (items.length) render();
-      }
-    });
-
-    today = localDateKey();
-    showDate();
-    load();
-  </script>
+  <script src="/app.js" defer></script>
 </body>
 </html>

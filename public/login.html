@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#212121">
+  <title>로그인 · 현장 안전점검</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+      background: #212121;
+      color: #111827;
+      font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+      line-height: 1.55;
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+    }
+    .card {
+      width: 100%;
+      max-width: 400px;
+      padding: 32px 24px;
+      border-radius: 16px;
+      background: #fff;
+      text-align: center;
+      box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+    }
+    .mark {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 12px;
+      border-radius: 14px;
+      background: #f59e0b;
+      display: grid;
+      place-items: center;
+    }
+    h1 { margin: 0 0 6px; font-size: 1.375rem; }
+    .lead { margin: 0 0 24px; color: #4b5563; }
+    #gbtn { display: flex; justify-content: center; min-height: 44px; }
+    .msg {
+      margin: 16px 0 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 0.9375rem;
+    }
+    .msg.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+    .msg.info { background: #f3f4f6; color: #374151; }
+    .note { margin: 20px 0 0; font-size: 0.8125rem; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="mark" aria-hidden="true">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1f2a37" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>
+    </div>
+    <h1>현장 안전점검</h1>
+    <p class="lead">등록된 구글 계정으로 로그인하세요.</p>
+    <div id="gbtn"></div>
+    <p class="msg info" id="msg" role="status">로그인 버튼을 불러오는 중입니다…</p>
+    <p class="note">접속 권한은 관리자가 등록한 계정에만 있습니다.</p>
+  </main>
+
+  <script>
+    const msg = document.getElementById('msg');
+    const next = new URLSearchParams(location.search).get('next') || '/';
+
+    function show(text, kind) {
+      msg.textContent = text;
+      msg.className = `msg ${kind}`;
+      msg.hidden = !text;
+    }
+
+    async function onCredential(response) {
+      show('로그인 확인 중입니다…', 'info');
+      try {
+        const res = await fetch('/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: response.credential, next }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          location.replace(data.next || '/');
+          return;
+        }
+        show(data.error || '로그인에 실패했습니다.', 'error');
+      } catch {
+        show('서버에 연결하지 못했습니다. 연결 상태를 확인해 주세요.', 'error');
+      }
+    }
+
+    async function init() {
+      let clientId;
+      try {
+        const res = await fetch('/auth/config');
+        if (!res.ok) throw new Error();
+        clientId = (await res.json()).clientId;
+      } catch {
+        show('로그인 설정을 불러오지 못했습니다. 관리자에게 문의하세요.', 'error');
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.onerror = () => show('구글 로그인을 불러오지 못했습니다. 연결 상태를 확인해 주세요.', 'error');
+      script.onload = () => {
+        google.accounts.id.initialize({ client_id: clientId, callback: onCredential, ux_mode: 'popup' });
+        google.accounts.id.renderButton(document.getElementById('gbtn'), {
+          theme: 'filled_blue',
+          size: 'large',
+          shape: 'pill',
+          text: 'signin_with',
+          locale: 'ko',
+          width: 280,
+        });
+        show('', 'info');
+      };
+      document.head.append(script);
+    }
+
+    init();
+  </script>
+</body>
+</html>

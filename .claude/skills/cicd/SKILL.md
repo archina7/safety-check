@@ -16,7 +16,7 @@ description: safety-check 앱의 배포 절차입니다. npm test 통과 → 커
 | GitHub 저장소 | `git remote get-url origin` |
 | 워크플로 파일 | `.github/workflows/` 안의 배포 워크플로 |
 | Pages 프로젝트 이름 | 워크플로의 `--project-name` 값 또는 `wrangler.toml`/`wrangler.jsonc`의 `name` |
-| 사이트 주소 | `https://<프로젝트 이름>.pages.dev` |
+| 사이트 주소 | `https://safety-check-ezs.pages.dev` (프로젝트 이름과 다르다. 확인: `npx wrangler pages project list`의 Project Domains) |
 
 아래 경우에는 멈추고 사용자에게 알립니다.
 - `origin`이 없음
@@ -41,7 +41,7 @@ description: safety-check 앱의 배포 절차입니다. npm test 통과 → 커
    - **성공**하면 5번으로 갑니다.
    - **실패**하면 5번으로 넘어가지 말고 아래 "Actions 실패 시"를 따릅니다.
 5. **pages.dev 확인** (Actions 성공 후)
-   - `https://<프로젝트 이름>.pages.dev/`가 200이고 로그인 화면이 나오는지 확인합니다.
+   - `https://safety-check-ezs.pages.dev/`가 200이고 로그인 화면이 나오는지 확인합니다.
    - `functions/`에서 로그인이 필요한 경로를 하나 골라, 로그인 없이 요청하면 거부(401 또는 로그인 화면으로 302)되는지 확인합니다. 200이 나오면 로그인 보호가 빠진 것이니 경고합니다. 500이나 503이 나오면 Cloudflare 환경 변수(`SESSION_SECRET` 등)가 빠졌을 수 있다고 알립니다.
    - 배포가 사이트에 반영되기까지 몇십 초 걸릴 수 있습니다. 결과가 예전 그대로이면 15초 간격으로 최대 2분 다시 확인합니다.
 
@@ -67,4 +67,4 @@ description: safety-check 앱의 배포 절차입니다. npm test 통과 → 커
 - 커밋: `<짧은 해시> <메시지>`와 바뀐 파일 목록
 - 로컬 테스트: 통과 수
 - Actions: 성공, 실행 URL(`gh run view <run-id> --json url -q .url`), 걸린 시간
-- 사이트: `https://<프로젝트 이름>.pages.dev`, `/`와 보호 경로의 응답 코드
+- 사이트: `https://safety-check-ezs.pages.dev`, `/`와 보호 경로의 응답 코드
