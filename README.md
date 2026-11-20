@@ -84,9 +84,17 @@ CREATE TABLE bookings  (site TEXT, date TEXT, equipment TEXT, start TEXT, end TE
 
 ### 자동 배포
 
-`main`에 `cloudflare/` 아래 변경이 push되면 GitHub Actions(`.github/workflows/deploy-cloudflare.yml`)가
-타입 검사 후 `wrangler deploy`를 실행합니다. Actions 탭에서 **Run workflow**로 수동 실행도 됩니다.
-저장소 시크릿 `CLOUDFLARE_API_TOKEN`(Workers Scripts 편집 + D1 편집 권한)이 필요합니다.
+Cloudflare **Workers Builds**(Git 연동)로 `main`에 push하면 자동 배포됩니다. API 토큰은 쓰지 않습니다.
+Cloudflare 대시보드 → Workers & Pages → `safety-check-mcp` → Settings → Builds 에 연결되어 있으며 설정은 다음과 같습니다.
+
+| 항목 | 값 |
+|---|---|
+| Git 저장소 / 브랜치 | `archina7/safety-check` / `main` |
+| Root directory | `cloudflare` |
+| Build command | (비움) |
+| Deploy command | `npx wrangler deploy` |
+| Build watch paths | 포함 `cloudflare/*` |
+
 D1 데이터 초기화(`seed.sql`)는 자동으로 하지 않습니다.
 
 ### 수동 배포·운영
