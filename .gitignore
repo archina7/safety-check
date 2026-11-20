@@ -1,0 +1,8 @@
+# 로컬 DB (seed.py로 재생성)
+*.db
+
+# 개인 Claude 설정
+.claude/settings.local.json
+
+__pycache__/
+*.pyc

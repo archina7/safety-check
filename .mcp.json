@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "office-db": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-sqlite"
+      ],
+      "env": {}
+    }
+  }
+}
