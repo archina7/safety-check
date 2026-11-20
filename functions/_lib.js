@@ -96,19 +96,25 @@ export async function verifyGoogleIdToken(token, env) {
   const jwk = (keys || []).find((k) => k.kid === header.kid);
   if (!jwk) throw new AuthError('알 수 없는 서명 키');
 
-  const key = await crypto.subtle.importKey(
-    'jwk',
-    { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true },
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  );
-  const valid = await crypto.subtle.verify(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    b64urlToBytes(parts[2]),
-    enc.encode(`${parts[0]}.${parts[1]}`),
-  );
+  // 서명 부분이 깨졌거나 키 값이 이상하면 서버 오류가 아니라 로그인 거부로 처리한다
+  let valid;
+  try {
+    const key = await crypto.subtle.importKey(
+      'jwk',
+      { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true },
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    valid = await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      b64urlToBytes(parts[2]),
+      enc.encode(`${parts[0]}.${parts[1]}`),
+    );
+  } catch {
+    throw new AuthError('서명 형식 오류');
+  }
   if (!valid) throw new AuthError('서명 검증 실패');
 
   const now = Date.now() / 1000;
@@ -165,8 +171,16 @@ export function sessionCookie(value, maxAgeSec) {
 }
 
 // 로그인 뒤 돌아갈 주소: 같은 사이트 안의 경로만 허용 (open redirect 방지)
+// 브라우저는 주소 속 탭·줄바꿈을 지우므로 '/\t/evil.com' 이 '//evil.com' 이 된다. 제어 문자·공백·역슬래시는 모두 거부한다.
+const SAFE_PATH = /^\/(?![\/\\])[^\x00-\x20\x7f\\]*$/;
 export function safeNext(value) {
-  return typeof value === 'string' && /^\/(?![\/\\])/.test(value) ? value : '/';
+  if (typeof value !== 'string' || !SAFE_PATH.test(value)) return '/';
+  const base = 'https://same-origin.invalid';
+  try {
+    return new URL(value, base).origin === base ? value : '/';
+  } catch {
+    return '/';
+  }
 }
 
 // 세션이 유효하고 지금도 허용 목록에 있는 사용자만 돌려준다 (목록에서 빼면 바로 차단)

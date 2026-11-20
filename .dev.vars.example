@@ -10,3 +10,13 @@ ALLOWED_EMAILS=
 
 # 세션 쿠키 서명용 임의 문자열 32자 이상. 예: node -e "console.log(crypto.randomBytes(32).toString('hex'))"
 SESSION_SECRET=
+
+# Claude API 키 (https://platform.claude.com/settings/keys). 서버 함수(functions/)에서 env.ANTHROPIC_API_KEY 로만 읽는다.
+# 화면(public/)에는 절대 넣지 않는다. 운영 값은 Cloudflare 비밀값으로 넣는다:
+#   npx wrangler pages secret put ANTHROPIC_API_KEY --project-name safety-check
+# 이 예시 파일에는 키 값을 적지 않는다 (이 파일만 저장소에 올라간다).
+ANTHROPIC_API_KEY=
+
+# 모델 (비우면 기본값). 판단·작성 Agent 기본 claude-opus-5-5 / 단순 분류·추출 Worker 기본 claude-haiku-5-5
+CLAUDE_MODEL=
+CLAUDE_WORKER_MODEL=

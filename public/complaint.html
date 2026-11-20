@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#212121">
+  <title>민원 분류 · 현장 안전점검</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/agent.css">
+  <style>
+    .row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+    input[type="date"] { min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; color: var(--ink); }
+    input[type="date"]:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .samples button { font-size: 0.875rem; padding: 0 12px; }
+    .sample-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+    .sample-group span { font-size: 0.8125rem; color: var(--ink-soft); min-width: 64px; }
+    .urgent { padding: 16px; border-radius: var(--radius); background: var(--bad); color: #fff; font-size: 1.25rem; font-weight: 800; margin-bottom: 12px; }
+    .urgent small { display: block; font-size: 0.9375rem; font-weight: 600; margin-top: 4px; opacity: 0.95; }
+    .cls { display: grid; gap: 6px; margin: 0 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+    .cls dt { font-size: 0.8125rem; color: var(--ink-soft); }
+    .cls dd { margin: 0 0 4px; font-weight: 600; }
+    .conf { display: flex; align-items: center; gap: 8px; }
+    .conf-bar { flex: 1; max-width: 200px; height: 8px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+    .conf-bar span { display: block; height: 100%; background: var(--ok); }
+    .conf-bar.low span { background: var(--accent); }
+    .attach { margin: 0 0 12px; padding: 0; list-style: none; display: grid; gap: 6px; }
+    .attach li { padding: 8px 12px; border-radius: 10px; background: #f9fafb; border: 1px solid #e5e7eb; font-size: 0.9375rem; }
+    .attach b { display: inline-block; min-width: 96px; }
+    .draft { margin: 0 0 12px; padding: 16px; border: 3px solid var(--accent); border-radius: var(--radius); background: #fffdf5; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap head">
+      <h1>현장 민원 분류</h1>
+      <a href="/">점검표로</a>
+    </div>
+  </header>
+
+  <main class="wrap grid">
+    <section class="card" aria-labelledby="in-title">
+      <h2 id="in-title">민원 입력</h2>
+      <div class="row">
+        <label class="lbl" for="date" style="margin:0">민원 날짜</label>
+        <input type="date" id="date">
+      </div>
+      <label class="lbl" for="complaint">민원 내용</label>
+      <textarea id="complaint" placeholder="예) 아침부터 공사 소음이 너무 심합니다." style="min-height:140px"></textarea>
+      <p class="hint">예시 민원(합성)</p>
+      <div class="samples" id="samples" style="display:block"></div>
+      <p class="hint">1단계 분류(Worker) → 2단계 처리 방식(코드) → 3단계 답변 초안(소음·진동, 교통·주차만). 확신도 0.7 미만이거나 '기타'·'먼지'는 담당자 확인 대기열, '안전'은 즉시 긴급.</p>
+      <button type="button" class="primary" id="run" style="margin-top:12px">분류하고 보내기</button>
+    </section>
+
+    <section class="card" aria-labelledby="out-title" aria-live="polite">
+      <h2 id="out-title">결과</h2>
+      <div id="result"><p class="empty-state">아직 실행하지 않았습니다.</p></div>
+    </section>
+  </main>
+
+  <script src="/agent-ui.js" defer></script>
+  <script src="/complaint.js" defer></script>
+</body>
+</html>

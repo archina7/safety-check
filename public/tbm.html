@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#212121">
+  <title>TBM 공지문 · 현장 안전점검</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/agent.css">
+</head>
+<body>
+  <header>
+    <div class="wrap head">
+      <h1>TBM 기록 → 안전 공지문</h1>
+      <a href="/">점검표로</a>
+    </div>
+  </header>
+
+  <main class="wrap grid">
+    <section class="card" aria-labelledby="in-title">
+      <h2 id="in-title">TBM 기록</h2>
+      <label class="lbl" for="record">작업·위험요인·대책을 적거나 예시를 고르세요</label>
+      <div class="samples" id="samples"></div>
+      <textarea id="record" placeholder="예) 1. 비계 위 작업 — 위험: 추락 → 대책: 안전대 착용"></textarea>
+      <p class="hint">1단계 추출 → 2단계 대책 검사(코드) → 3단계 공지문 작성. 대책이 없는 위험요인이 있으면 2단계에서 멈춥니다.</p>
+      <button type="button" class="primary" id="run" style="margin-top:12px">공지문 만들기</button>
+    </section>
+
+    <section class="card" aria-labelledby="out-title" aria-live="polite">
+      <h2 id="out-title">결과</h2>
+      <div id="result"><p class="empty-state">아직 실행하지 않았습니다.</p></div>
+    </section>
+  </main>
+
+  <script src="/agent-ui.js" defer></script>
+  <script src="/tbm.js" defer></script>
+</body>
+</html>

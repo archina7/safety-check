@@ -26,7 +26,10 @@ test('허용 목록: 공백·대소문자를 무시하고, 목록 밖은 거부'
 test('safeNext: 같은 사이트 경로만 허용', () => {
   assert.equal(safeNext('/'), '/');
   assert.equal(safeNext('/?site=A'), '/?site=A');
-  for (const bad of ['//evil.com', '/\\evil.com', 'https://evil.com', 'javascript:alert(1)', '', null, undefined]) {
+  assert.equal(safeNext('/?site=A%20B'), '/?site=A%20B');
+  // 탭·줄바꿈·공백은 브라우저가 지우거나 바꿔서 '//evil.com' 이 될 수 있다
+  for (const bad of ['//evil.com', '/\\evil.com', 'https://evil.com', 'javascript:alert(1)', '', null, undefined,
+    '/\t/evil.com', '/\n/evil.com', '/\r/evil.com', '/ /evil.com', '/a\\b', '/\x00/evil.com', '/\x7f']) {
     assert.equal(safeNext(bad), '/', String(bad));
   }
 });

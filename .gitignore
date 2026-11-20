@@ -10,7 +10,12 @@ __pycache__/
 # Cloudflare Worker / Pages
 node_modules/
 .wrangler/
+# 비밀값 파일 (API 키 등): 어떤 이름 변형도 올리지 않는다. 예시 파일만 예외
 .dev.vars
+.dev.vars.*
+!.dev.vars.example
 .env
+.env.*
+*.key
 .mcp-token
 cloudflare/worker-configuration.d.ts

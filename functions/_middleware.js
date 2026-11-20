@@ -14,8 +14,10 @@ import {
 
 const PUBLIC_PATHS = new Set(['/login', '/login.html']);
 
-// 앱 설치(PWA) 파일: 브라우저가 쿠키 없이 받아 가므로 로그인 없이 내준다. 사용자 데이터는 없다.
-const PWA_PATHS = new Set(['/manifest.webmanifest', '/sw.js']);
+// 로그인 없이 내주는 정적 파일 (사용자 데이터 없음)
+// - manifest·아이콘: 브라우저가 쿠키 없이 받아 간다
+// - sw.js·app.js: 세션이 만료된 채 화면이 열려도 스크립트가 떠야 /api/me 401 을 보고 로그인 화면으로 보낼 수 있다
+const PWA_PATHS = new Set(['/manifest.webmanifest', '/sw.js', '/app.js']);
 function isPwaAsset(path) {
   return PWA_PATHS.has(path) || /^\/icons\/[\w.-]+\.(png|svg)$/.test(path);
 }

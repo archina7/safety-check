@@ -1,0 +1,31 @@
+#!/bin/sh
+# 비밀값(API 키 등)이 커밋되지 않게 막는다.
+# 켜기(클론마다 한 번): git config core.hooksPath .githooks
+fail=0
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+
+for f in $files; do
+  # 1) 비밀값 파일 자체 (예시 파일만 허용)
+  case "$f" in
+    .dev.vars.example|*/.dev.vars.example) ;;
+    .dev.vars|*/.dev.vars|.dev.vars.*|*/.dev.vars.*|.env|*/.env|.env.*|*/.env.*|*.key)
+      echo "✘ 비밀값 파일은 커밋할 수 없습니다: $f"
+      fail=1
+      continue
+      ;;
+  esac
+
+  # 2) 새로 추가된 줄에 키 모양 문자열이 있는지 (값은 화면에 출력하지 않는다)
+  if git diff --cached -U0 -- "$f" | grep '^+' | grep -v '^+++' \
+    | grep -qE 'sk-(proj-|ant-|svcacct-)?[A-Za-z0-9_-]{20,}|(OPENAI|ANTHROPIC)_API_KEY[[:space:]]*[=:][[:space:]]*["'"'"']?[A-Za-z0-9_-]{8,}'; then
+    echo "✘ API 키로 보이는 값이 들어 있습니다: $f"
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "키는 .dev.vars(로컬)와 Cloudflare 비밀값(운영)에만 둡니다. 해당 파일을 git reset HEAD <파일> 로 빼고 다시 커밋하세요."
+  exit 1
+fi
+exit 0

@@ -7,7 +7,9 @@ import { generateKeyPairSync, sign, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { makeSession } from '../functions/_lib.js';
+import { mockReply } from './helpers/claude-mock.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8799; // npm run dev(8788)와 겹치지 않게
@@ -23,6 +25,8 @@ const attacker = generateKeyPairSync('rsa', { modulusLength: 2048 });
 
 let server;
 let certsServer;
+let claudeServer; // Claude API 대신 고정 응답을 주는 로컬 서버 (API 키 없이 테스트)
+const claudeRequests = [];
 
 const b64url = (v) => Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).toString('base64url');
 
@@ -83,12 +87,27 @@ before(async () => {
   await new Promise((r) => certsServer.listen(0, '127.0.0.1', r));
   const certsUrl = `http://127.0.0.1:${certsServer.address().port}/certs`;
 
+  claudeServer = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const params = JSON.parse(body || '{}');
+      claudeRequests.push({ path: req.url, headers: req.headers, params });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'request-id': 'req_mock' });
+      res.end(JSON.stringify(mockReply(params)));
+    });
+  });
+  await new Promise((r) => claudeServer.listen(0, '127.0.0.1', r));
+  const claudeUrl = `http://127.0.0.1:${claudeServer.address().port}`;
+
   const wrangler = path.join(root, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
   const bindings = [
     `GOOGLE_CLIENT_ID=${CLIENT_ID}`,
     `ALLOWED_EMAILS=${ALLOWED}, boss@example.com`,
     `SESSION_SECRET=${SECRET}`,
     `GOOGLE_CERTS_URL=${certsUrl}`,
+    'ANTHROPIC_API_KEY=fake',
+    `ANTHROPIC_BASE_URL=${claudeUrl}`,
   ].flatMap((b) => ['--binding', b]);
   server = spawn(process.execPath, [wrangler, 'pages', 'dev', 'public', '--port', String(PORT), '--ip', '127.0.0.1', ...bindings], {
     cwd: root,
@@ -101,6 +120,7 @@ before(async () => {
 
 after(() => {
   certsServer?.close();
+  claudeServer?.close();
   if (!server || server.exitCode !== null) return;
   if (process.platform === 'win32') {
     // workerd 자식 프로세스까지 함께 종료
@@ -187,6 +207,10 @@ const badTokens = {
     return `${h}.${b64url({ iss: 'https://accounts.google.com', aud: CLIENT_ID, email: 'boss@example.com', email_verified: true, exp: 9999999999 })}.${s}`;
   },
   '형식이 틀린 문자열': () => 'not-a-token',
+  '서명 부분이 깨진 토큰(base64 아님)': () => {
+    const [h, p] = idToken().split('.');
+    return `${h}.${p}.!!!`;
+  },
 };
 
 for (const [name, make] of Object.entries(badTokens)) {
@@ -216,7 +240,8 @@ test('거부: 다른 사이트에서 보낸 로그인 요청(CSRF) → 403', asy
 });
 
 test('거부: 로그인 뒤 외부 주소로 보내는 next 는 / 로 바꾼다 (open redirect)', async () => {
-  for (const next of ['//evil.example.com', 'https://evil.example.com', '/\\evil.example.com']) {
+  // 탭·줄바꿈은 브라우저가 지워서 '//evil...' 이 된다 (로그인 화면이 ?next=%2F%09%2Fevil... 을 풀어 보낸 경우)
+  for (const next of ['//evil.example.com', 'https://evil.example.com', '/\\evil.example.com', '/\t/evil.example.com', '/\n/evil.example.com', '/\r/evil.example.com']) {
     const res = await login(idToken(), { next });
     assert.equal((await res.json()).next, '/', next);
   }
@@ -322,6 +347,7 @@ test('허용: sw.js 는 로그인 없이 받을 수 있고, /api/ 와 /config.js
   assert.match(src, /startsWith\('\/api\/'\)/, '/api/ 제외');
   assert.match(src, /'\/config\.js'/, '/config.js 제외');
   assert.match(src, /caches\.delete/, '예전 캐시 삭제');
+  assert.match(src, /c\.put\(url\.pathname, copy\)\)\.catch\(/, '캐시 저장 실패가 화면 열기 실패로 이어지지 않는다');
 
   // 캐시 목록(SHELL)에는 화면 파일만 있어야 한다
   const shell = JSON.parse(src.match(/const SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"').replace(/,\s*\]/, ']'));
@@ -329,13 +355,21 @@ test('허용: sw.js 는 로그인 없이 받을 수 있고, /api/ 와 /config.js
   for (const p of shell) assert.ok(!p.startsWith('/api/') && p !== '/config.js', `캐시하면 안 되는 경로: ${p}`);
 });
 
-test('거부: 설치 파일 예외는 정해진 파일만 — 화면 스크립트와 아이콘 폴더 밖 파일은 로그인 필요', async () => {
-  assert.equal((await fetch(`${BASE}/app.js`)).status, 401);
-  assert.equal((await fetch(`${BASE}/icons/../app.js`)).status, 401);
-  const cookie = cookieFrom(await login(idToken()));
-  const app = await fetch(`${BASE}/app.js`, { headers: { Cookie: cookie } });
+test('허용: 화면 스크립트(app.js)는 로그인 없이 받는다 — 세션이 만료돼도 스크립트가 떠서 로그인 화면으로 보낸다', async () => {
+  const app = await fetch(`${BASE}/app.js`);
   assert.equal(app.status, 200);
-  assert.match(await app.text(), /serviceWorker\.register\('\/sw\.js'\)/);
+  assert.match(app.headers.get('content-type'), /javascript/);
+  const src = await app.text();
+  assert.match(src, /serviceWorker\.register\('\/sw\.js'\)/);
+  assert.match(src, /location\.replace\(`\/login\?next=/, '401 이면 로그인 화면으로 보낸다');
+});
+
+test('거부: 로그인 없이 받는 파일은 정해진 것뿐 — 화면(HTML)과 데이터는 로그인 필요', async () => {
+  for (const p of ['/index.html', '/api/me', '/api/inspections']) {
+    assert.equal((await fetch(`${BASE}${p}`)).status, 401, p);
+  }
+  const page = await fetch(`${BASE}/index.html`, { headers: { Accept: 'text/html' }, redirect: 'manual' });
+  assert.ok([302, 308].includes(page.status), `/index.html → ${page.status}`);
 });
 
 // ---------- 설정이 빠진 서버 (fail closed) ----------
@@ -373,4 +407,141 @@ test('거부: 로그인 설정이 없으면 화면은 한국어 안내(503), API
       bare.kill('SIGTERM');
     }
   }
+});
+
+// ---------- TBM → 안전 공지문 (Claude 는 고정 응답 서버) ----------
+
+const tbmSamples = JSON.parse(readFileSync(path.join(root, 'public', 'tbm-samples.json'), 'utf8')).samples;
+const tbmRecord = (id) => tbmSamples.find((s) => s.id === id).record;
+
+async function postTbm(record, { cookie, origin = BASE } = {}) {
+  return fetch(`${BASE}/api/tbm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify({ record }),
+  });
+}
+
+test('허용: TBM 정상 기록 → 3단계까지 실행하고 공지문(5줄 이내)을 돌려준다', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = claudeRequests.length;
+  const res = await postTbm(tbmRecord('normal'), { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'ok');
+  assert.deepEqual(body.steps.map((s) => s.name), ['1단계 추출', '2단계 검사', '3단계 작성']);
+  assert.ok(body.notice.lines.length >= 1 && body.notice.lines.length <= 5);
+  for (const s of body.steps) {
+    assert.ok('input' in s && 'output' in s && typeof s.ms === 'number', `${s.name}: 입력·출력·소요 시간`);
+  }
+  assert.equal(body.totals.calls, 2);
+
+  // 실제 SDK 가 보낸 요청: 키·모델·구조화 출력·fallback
+  const sent = claudeRequests.slice(before);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].headers.authorization, 'Bearer fake'); // SDK 1.x 는 API 키를 Bearer 로 보낸다
+  assert.equal(sent[0].params.model, 'claude-haiku-5-5');
+  assert.equal(sent[0].params.output_config.format.type, 'json_schema');
+  assert.equal(sent[1].params.model, 'claude-opus-5-5');
+  assert.equal(sent[1].params.fallbacks, 'default');
+  assert.match(sent[1].headers['anthropic-beta'] || '', /server-side-fallback-2026-07-01/);
+});
+
+test('거부: TBM 대책 누락 기록 → 2단계에서 멈추고 누락 목록, 3단계 호출 없음', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = claudeRequests.length;
+  const res = await postTbm(tbmRecord('missing'), { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'blocked');
+  assert.deepEqual(body.missing.map((m) => m.hazard), ['장비와 작업자 협착', '감전']);
+  assert.deepEqual(body.steps.map((s) => s.name), ['1단계 추출', '2단계 검사']);
+  assert.equal(claudeRequests.length - before, 1, 'Claude 는 1단계에서 한 번만');
+});
+
+test('거부: TBM 빈 기록 → 422, Claude 호출 없음', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = claudeRequests.length;
+  const res = await postTbm(tbmRecord('empty'), { cookie });
+  assert.equal(res.status, 422);
+  const body = await res.json();
+  assert.equal(body.status, 'empty');
+  assert.equal(claudeRequests.length, before);
+});
+
+test('거부: TBM API 는 로그인 필요, 다른 사이트 요청 403, GET 405', async () => {
+  assert.equal((await postTbm(tbmRecord('normal'))).status, 401);
+  const cookie = cookieFrom(await login(idToken()));
+  assert.equal((await postTbm(tbmRecord('normal'), { cookie, origin: 'https://evil.example.com' })).status, 403);
+  assert.equal((await fetch(`${BASE}/api/tbm`, { headers: { Cookie: cookie } })).status, 405);
+  const page = await fetch(`${BASE}/tbm`, { headers: { Accept: 'text/html' }, redirect: 'manual' });
+  assert.equal(page.status, 302);
+});
+
+// ---------- 현장 민원 분류 (Claude 는 고정 응답 서버) ----------
+
+const complaintSamples = JSON.parse(readFileSync(path.join(root, 'public', 'complaint-samples.json'), 'utf8')).samples;
+const complaintOf = (id) => complaintSamples.find((s) => s.id === id);
+
+async function postComplaint(body, { cookie, origin = BASE } = {}) {
+  return fetch(`${BASE}/api/complaint`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+test('허용: 소음 민원 → Worker 분류 → 작업 예고 목록을 붙여 Agent 답변 초안', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const s = complaintOf('noise-1');
+  const before = claudeRequests.length;
+  const res = await postComplaint({ complaint: s.complaint, date: s.date }, { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'drafted');
+  assert.equal(body.classification.category, '소음·진동');
+  assert.equal(body.attachments.work_notices.length, 2);
+  assert.ok(body.draft.draft.includes('07:00-12:00'), '붙인 자료의 시간대를 근거로 쓴다');
+  const sent = claudeRequests.slice(before);
+  assert.deepEqual(sent.map((r) => r.params.model), ['claude-haiku-5-5', 'claude-opus-5-5']);
+});
+
+test('허용: 교통 민원 → 장비 반입 예약 시간대를 붙여 답변 초안', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const s = complaintOf('traffic-2');
+  const body = await (await postComplaint({ complaint: s.complaint, date: s.date }, { cookie })).json();
+  assert.equal(body.status, 'drafted');
+  assert.deepEqual(body.attachments.equipment_bookings.map((b) => b.time), ['10:00-14:00']);
+});
+
+test('안전 민원 → 답변 초안 없이 긴급, Claude 는 분류 1회뿐', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const s = complaintOf('safety-1');
+  const before = claudeRequests.length;
+  const body = await (await postComplaint({ complaint: s.complaint, date: s.date }, { cookie })).json();
+  assert.equal(body.status, 'urgent');
+  assert.equal(body.urgent, true);
+  assert.equal(body.draft, undefined);
+  assert.equal(claudeRequests.length - before, 1);
+});
+
+test('거부: 애매한 민원(확신도 < 0.7)·기타 → 대기열, 자동 답변 없음', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  for (const id of ['vague-2', 'etc-1']) {
+    const s = complaintOf(id);
+    const before = claudeRequests.length;
+    const body = await (await postComplaint({ complaint: s.complaint, date: s.date }, { cookie })).json();
+    assert.equal(body.status, 'queued', id);
+    assert.equal(body.draft, undefined);
+    assert.equal(claudeRequests.length - before, 1, `${id}: 답변 초안 호출 없음`);
+  }
+});
+
+test('거부: 민원 API 빈 입력 422, 로그인 없음 401, 다른 사이트 403, GET 405', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  assert.equal((await postComplaint({ complaint: '' }, { cookie })).status, 422);
+  assert.equal((await postComplaint({ complaint: '소음' })).status, 401);
+  assert.equal((await postComplaint({ complaint: '소음' }, { cookie, origin: 'https://evil.example.com' })).status, 403);
+  assert.equal((await fetch(`${BASE}/api/complaint`, { headers: { Cookie: cookie } })).status, 405);
+  assert.equal((await fetch(`${BASE}/complaint`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
 });

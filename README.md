@@ -120,4 +120,6 @@ npm run dev   # http://localhost:8788
 npm test      # wrangler pages dev 를 띄워 API 허용·거부 확인
 ```
 
-`main`에 push하면 GitHub Actions(`.github/workflows/deploy.yml`)가 테스트 후 Cloudflare Pages 프로젝트 `safety-check`에 배포합니다. 저장소 Secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`가 필요합니다.
+배포는 자동으로 하지 않습니다. `npm test` 통과 후 `npx wrangler pages deploy public --project-name safety-check --branch main`으로 직접 배포합니다 → https://safety-check-ezs.pages.dev . GitHub Actions(`.github/workflows/test.yml`)는 테스트만 돕니다.
+
+Pages 환경 변수 `GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS`, `SESSION_SECRET`이 하나라도 없으면 사이트 전체가 "준비 중"(503)으로 막힙니다. 로컬은 `.dev.vars.example`을 `.dev.vars`로 복사해 채웁니다.
