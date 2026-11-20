@@ -57,3 +57,8 @@ test('거부: 영문 이름 파일의 키와 .dev.vars 는 전처럼 막는다',
   assert.equal(tryCommit({ '.dev.vars': 'X=1' }), false);
   assert.equal(tryCommit({ '.dev.vars.example': 'X=' }), true);
 });
+
+test('훅 파일은 git 에 실행 권한(100755)으로 저장돼 있다 (없으면 Linux·macOS 에서 훅이 조용히 건너뛰어진다)', () => {
+  const out = execFileSync('git', ['ls-files', '-s', '.githooks/pre-commit'], { cwd: fileURLToPath(new URL('..', import.meta.url)) }).toString();
+  assert.match(out, /^100755 /);
+});
