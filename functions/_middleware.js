@@ -20,6 +20,24 @@ function isPwaAsset(path) {
   return PWA_PATHS.has(path) || /^\/icons\/[\w.-]+\.(png|svg)$/.test(path);
 }
 
+function wantsHtml(request) {
+  return request.method === 'GET' && (request.headers.get('Accept') || '').includes('text/html');
+}
+
+// 설정이 덜 됐을 때 화면 요청에 보여 줄 안내 (무엇이 빠졌는지는 서버 로그에만 남긴다)
+const SETUP_PAGE = `<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#212121"><title>준비 중 · 현장 안전점검</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px 16px;background:#212121;
+font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere}
+main{width:100%;max-width:400px;padding:32px 24px;border-radius:16px;background:#fff;text-align:center}
+h1{margin:0 0 8px;font-size:1.25rem;color:#111827}p{margin:0;color:#4b5563}
+</style></head><body><main>
+<h1>현장 안전점검 준비 중입니다</h1>
+<p>서버의 로그인 설정이 아직 끝나지 않았습니다. 잠시 후 다시 열어 주세요. 계속 이 화면이 보이면 관리자에게 알려 주세요.</p>
+</main></body></html>`;
+
 function json(body, status = 200, headers = {}) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 }
@@ -90,6 +108,7 @@ async function handle(context) {
   const missing = configError(env);
   if (missing) {
     console.error(`[safety-check] 설정 오류: ${missing}`);
+    if (wantsHtml(request)) return new Response(SETUP_PAGE, { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
     return json({ error: '서버 설정이 완료되지 않았습니다. 관리자에게 문의하세요.' }, 503);
   }
 
@@ -114,8 +133,7 @@ async function handle(context) {
   }
 
   // 로그인 안 됨: 화면 요청은 로그인 화면으로, API 요청은 401
-  const wantsHtml = request.method === 'GET' && (request.headers.get('Accept') || '').includes('text/html');
-  if (wantsHtml) {
+  if (wantsHtml(request)) {
     const target = `/login?next=${encodeURIComponent(path + url.search)}`;
     return new Response(null, { status: 302, headers: { Location: target, 'Cache-Control': 'no-store' } });
   }

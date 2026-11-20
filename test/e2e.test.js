@@ -337,3 +337,40 @@ test('거부: 설치 파일 예외는 정해진 파일만 — 화면 스크립�
   assert.equal(app.status, 200);
   assert.match(await app.text(), /serviceWorker\.register\('\/sw\.js'\)/);
 });
+
+// ---------- 설정이 빠진 서버 (fail closed) ----------
+
+test('거부: 로그인 설정이 없으면 화면은 한국어 안내(503), API·설치 파일도 503', async () => {
+  const port = 8797;
+  const base = `http://127.0.0.1:${port}`;
+  const wrangler = path.join(root, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+  const bare = spawn(process.execPath, [wrangler, 'pages', 'dev', 'public', '--port', String(port), '--ip', '127.0.0.1'], {
+    cwd: root,
+    stdio: 'ignore',
+    env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
+  });
+  try {
+    let page;
+    for (let i = 0; i < 120 && !page; i++) {
+      try { page = await fetch(`${base}/`, { headers: { Accept: 'text/html' } }); } catch { await new Promise((r) => setTimeout(r, 500)); }
+    }
+    assert.ok(page, '설정 없는 서버가 뜨지 않음');
+    assert.equal(page.status, 503);
+    assert.match(page.headers.get('content-type'), /text\/html/);
+    const html = await page.text();
+    assert.match(html, /<html lang="ko">/);
+    assert.match(html, /준비 중입니다/);
+    assert.doesNotMatch(html, /GOOGLE_CLIENT_ID|ALLOWED_EMAILS|SESSION_SECRET/, '어떤 설정이 빠졌는지 화면에 드러내지 않는다');
+
+    for (const p of ['/api/inspections', '/login', '/manifest.webmanifest', '/app.js']) {
+      const res = await fetch(`${base}${p}`);
+      assert.equal(res.status, 503, p);
+    }
+  } finally {
+    if (process.platform === 'win32') {
+      try { execFileSync('taskkill', ['/pid', String(bare.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+    } else {
+      bare.kill('SIGTERM');
+    }
+  }
+});
