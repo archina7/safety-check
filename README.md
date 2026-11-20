@@ -82,7 +82,14 @@ CREATE TABLE bookings  (site TEXT, date TEXT, equipment TEXT, start TEXT, end TE
 [Environment]::SetEnvironmentVariable("SAFETY_CHECK_TOKEN", "<토큰>", "User")   # 설정 후 터미널 재시작
 ```
 
-### 배포·운영
+### 자동 배포
+
+`main`에 `cloudflare/` 아래 변경이 push되면 GitHub Actions(`.github/workflows/deploy-cloudflare.yml`)가
+타입 검사 후 `wrangler deploy`를 실행합니다. Actions 탭에서 **Run workflow**로 수동 실행도 됩니다.
+저장소 시크릿 `CLOUDFLARE_API_TOKEN`(Workers Scripts 편집 + D1 편집 권한)이 필요합니다.
+D1 데이터 초기화(`seed.sql`)는 자동으로 하지 않습니다.
+
+### 수동 배포·운영
 
 ```bash
 cd cloudflare
