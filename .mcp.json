@@ -13,6 +13,13 @@
       ],
       "env": {}
     },
+    "office-remote": {
+      "type": "http",
+      "url": "https://safety-check-mcp.archina7.workers.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SAFETY_CHECK_TOKEN}"
+      }
+    },
     "office-db": {
       "type": "stdio",
       "command": "npx",

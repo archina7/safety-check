@@ -62,5 +62,35 @@ CREATE TABLE bookings  (site TEXT, date TEXT, equipment TEXT, start TEXT, end TE
 | `office` | `uv run --no-project --with "mcp>=2" python office_mcp.py` | 이 저장소의 서버. 읽기 전용 조회 도구 2개 |
 | `office-db` | `npx -y mcp-sqlite office.db` | 범용 SQLite 서버. 테이블 조회·SQL 실행에 더해 **레코드 추가·수정·삭제도 가능** |
 
+| `office-remote` | `https://safety-check-mcp.archina7.workers.dev/mcp` | Cloudflare에 배포된 원격 서버. 도구는 `office`와 같음 |
+
 `office-db`는 `office.db`를 직접 수정할 수 있으니, 조회만 필요하면 `office`를 쓰세요.
 `uv`와 `npx`(Node.js)가 PATH에 있어야 합니다.
+
+## Cloudflare 원격 서버 (`cloudflare/`)
+
+`office_mcp.py`와 같은 도구 2개를 Cloudflare Workers에서 원격 MCP 서버(Streamable HTTP)로 제공합니다.
+
+- 주소: `https://safety-check-mcp.archina7.workers.dev/mcp`
+- DB: Cloudflare D1 `safety-check-office` (`cloudflare/seed.sql` = `seed.py`와 같은 데이터), 조회만 함
+- 인증: `Authorization: Bearer <토큰>` 헤더가 없거나 틀리면 401
+
+### 연결
+`.mcp.json`의 `office-remote`는 토큰을 환경 변수 `SAFETY_CHECK_TOKEN`에서 읽습니다. 토큰은 저장소에 올리지 않습니다.
+
+```powershell
+[Environment]::SetEnvironmentVariable("SAFETY_CHECK_TOKEN", "<토큰>", "User")   # 설정 후 터미널 재시작
+```
+
+### 배포·운영
+
+```bash
+cd cloudflare
+npm install
+npx wrangler types                                                   # 타입 생성
+npx wrangler d1 execute safety-check-office --remote --file seed.sql # D1 데이터 초기화(기존 데이터 삭제)
+npx wrangler deploy                                                  # 배포
+npx wrangler secret put MCP_TOKEN                                    # 토큰 변경
+```
+
+로컬 테스트: `cloudflare/.dev.vars`에 `MCP_TOKEN=...`을 적고 `npx wrangler d1 execute safety-check-office --local --file seed.sql` 후 `npx wrangler dev`.

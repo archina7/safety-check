@@ -6,3 +6,10 @@
 
 __pycache__/
 *.pyc
+
+# Cloudflare Worker
+node_modules/
+.wrangler/
+.dev.vars
+.mcp-token
+cloudflare/worker-configuration.d.ts
