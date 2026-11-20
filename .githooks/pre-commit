@@ -2,7 +2,11 @@
 # 비밀값(API 키 등)이 커밋되지 않게 막는다.
 # 켜기(클론마다 한 번): git config core.hooksPath .githooks
 fail=0
-files=$(git diff --cached --name-only --diff-filter=ACMR)
+# 한글·공백이 든 파일 이름도 그대로 받는다 (quotePath 끔, 줄 단위로 나눔, * 같은 글자 확장 안 함)
+files=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR)
+IFS='
+'
+set -f
 
 for f in $files; do
   # 1) 비밀값 파일 자체 (예시 파일만 허용)

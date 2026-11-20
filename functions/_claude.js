@@ -32,12 +32,15 @@ function baseURL(env) {
 }
 
 // SDK 자체 재시도는 끈다(maxRetries: 0). 재시도는 callAgent 가 MAX_ATTEMPTS 안에서 하고, 그래야 모든 호출이 로그에 남는다
+// 호출 하나는 최대 90초 (SDK 기본 10분이면 화면이 먼저 포기한다)
+export const CALL_TIMEOUT_MS = 90_000;
 export function createClient(env) {
-  return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, baseURL: baseURL(env), maxRetries: 0 });
+  return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, baseURL: baseURL(env), maxRetries: 0, timeout: CALL_TIMEOUT_MS });
 }
 
-// 다시 시도해 볼 만한 오류: 연결 실패·시간 초과, 408·409·429·5xx
+// 다시 시도해 볼 만한 오류: 연결 실패, 408·409·429·5xx. 시간 초과는 다시 기다리지 않는다
 export function isRetryable(e) {
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return false;
   if (e instanceof Anthropic.APIConnectionError) return true;
   const st = e?.status;
   return st === 408 || st === 409 || st === 429 || (typeof st === 'number' && st >= 500);
@@ -52,9 +55,10 @@ export function errorInfo(e) {
   };
 }
 
-// 민원·TBM 기록처럼 사용자가 쓴 글을 태그 안에 넣을 때, 글 안의 태그가 지시처럼 읽히지 않게 꺾쇠를 바꾼다
+// 민원·TBM 기록처럼 사용자가 쓴 글을 태그 안에 넣을 때, 글 안의 태그가 지시처럼 읽히지 않게 꺾쇠를 전각 꺾쇠(＜＞)로 바꾼다.
+// &lt; 같은 엔티티로 바꾸면 모델이 그대로 베껴 공지·답변에 '&amp;' 가 보이므로 쓰지 않는다
 export function escapeTags(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/</g, '＜').replace(/>/g, '＞');
 }
 
 export const RETRY_DELAY_MS = 1000;
@@ -65,10 +69,12 @@ export const isNonEmptyString = (v) => typeof v === 'string' && v.trim().length 
 // fallbacks: true 면 서버 측 대체 모델(거절 시)을 켠다 (Haiku 는 지원하지 않음)
 export async function callAgent(client, { model, system, user, schema, validate, effort, fallbacks, retryDelayMs = RETRY_DELAY_MS }, log) {
   let lastProblem = '';
+  let formatProblem = ''; // 이전 '응답'이 형식을 어겼을 때만 채운다. API 오류로 다시 부를 때는 안내를 붙이지 않는다
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const content = attempt === 1
-      ? user
-      : `${user}\n\n<note>이전 응답이 형식 규칙을 어겼습니다: ${lastProblem}. 스키마와 규칙에 맞게 다시 답하세요.</note>`;
+    const content = formatProblem
+      ? `${user}\n\n<note>이전 응답이 형식 규칙을 어겼습니다: ${formatProblem}. 스키마와 규칙에 맞게 다시 답하세요.</note>`
+      : user;
+    formatProblem = '';
     const params = {
       model,
       max_tokens: 16000,
@@ -111,11 +117,13 @@ export async function callAgent(client, { model, system, user, schema, validate,
       parsed = JSON.parse(text);
     } catch {
       lastProblem = res.stop_reason === 'max_tokens' ? '응답이 길이 제한에서 잘림' : 'JSON 아님';
+      formatProblem = lastProblem;
       continue;
     }
     const problem = validate(parsed);
     if (!problem) return parsed;
     lastProblem = problem;
+    formatProblem = problem;
   }
   throw new AgentError(`응답이 스키마에 맞지 않습니다 (${MAX_ATTEMPTS}회 시도): ${lastProblem}`);
 }
@@ -176,6 +184,9 @@ export function finishRun(event, status, steps, runStarted, extra = {}) {
 // 근거 자료의 시각(07:00)은 숫자 바로 뒤에 '시'·'분'이 올 때만 시·분으로 인정한다
 // ('오전 7시', '30분', 13:00 → '오후 1시'). '17:00' 이 있다고 '5일' 까지 근거로 치지는 않는다
 const NUMBER_RE = /\d+(?:[.:]\d+)?/g;
+// '5시간'·'30분간'·'분기' 처럼 시각이 아닌 말은 빼고, 시각의 '시'·'분'만 받는다
+const CLOCK_HOUR = /^시(?!간)/;
+const CLOCK_MINUTE = /^분(?![간기])/;
 const norm = (n) => n.split(':').map((p) => String(Number(p))).join(':');
 export function unsupportedNumbers(texts, source) {
   const haystack = typeof source === 'string' ? source : JSON.stringify(source);
@@ -197,8 +208,8 @@ export function unsupportedNumbers(texts, source) {
       const n = match[0];
       const after = String(t).slice(match.index + n.length).trimStart();
       const ok = known.has(norm(n))
-        || (after.startsWith('시') && hours.has(Number(n)))
-        || (after.startsWith('분') && minutes.has(Number(n)));
+        || (CLOCK_HOUR.test(after) && hours.has(Number(n)))
+        || (CLOCK_MINUTE.test(after) && minutes.has(Number(n)));
       if (!ok) found.add(n);
     }
   }

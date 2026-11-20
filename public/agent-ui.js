@@ -35,7 +35,10 @@ function stepView(step, badge = null) {
     ]),
   ]);
   if (step.calls?.length > 1) {
-    details.append(el('p', { className: 'calls', textContent: `스키마가 맞지 않아 다시 요청했습니다: ${step.calls.map((c) => `${c.attempt}차 ${sec(c.ms)}`).join(', ')}` }));
+    // 다시 부른 까닭을 호출마다 적는다: API 오류였는지, 응답 형식이 틀렸는지
+    const why = (c) => (c.error ? `API 오류 ${c.error.status ?? c.error.type}` : '형식 오류');
+    const list = step.calls.map((c, i) => `${c.attempt}차 ${sec(c.ms)}${i < step.calls.length - 1 ? ` (${why(c)})` : ''}`).join(', ');
+    details.append(el('p', { className: 'calls', textContent: `다시 요청했습니다: ${list}` }));
   }
   return details;
 }
