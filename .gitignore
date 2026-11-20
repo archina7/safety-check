@@ -7,9 +7,10 @@
 __pycache__/
 *.pyc
 
-# Cloudflare Worker
+# Cloudflare Worker / Pages
 node_modules/
 .wrangler/
 .dev.vars
+.env
 .mcp-token
 cloudflare/worker-configuration.d.ts

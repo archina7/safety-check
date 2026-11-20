@@ -109,3 +109,15 @@ npx wrangler secret put MCP_TOKEN                                    # 토큰 �
 ```
 
 로컬 테스트: `cloudflare/.dev.vars`에 `MCP_TOKEN=...`을 적고 `npx wrangler d1 execute safety-check-office --local --file seed.sql` 후 `npx wrangler dev`.
+
+## 현장 안전점검 웹앱 (`public/`, `functions/`)
+
+현장 안전관리자가 휴대폰으로 오늘 점검 항목 6개를 체크하는 Cloudflare Pages 앱입니다. 체크 상태는 브라우저에 날짜별로 저장됩니다.
+
+```bash
+npm install
+npm run dev   # http://localhost:8788
+npm test      # wrangler pages dev 를 띄워 API 허용·거부 확인
+```
+
+`main`에 push하면 GitHub Actions(`.github/workflows/deploy.yml`)가 테스트 후 Cloudflare Pages 프로젝트 `safety-check`에 배포합니다. 저장소 Secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`가 필요합니다.
