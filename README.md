@@ -15,11 +15,14 @@ Claude Code 같은 MCP 클라이언트에 연결하면 "판교 A현장 11월 24�
 
 ## 시작하기
 
+MCP Python SDK **2.x** 가 필요합니다(`from mcp.server import MCPServer`). 1.x에서는 동작하지 않습니다.
+
 ```bash
-pip install mcp        # MCP Python SDK
-python seed.py         # office.db 생성
-python office_mcp.py   # stdio로 MCP 서버 실행
+python seed.py                                                     # office.db 생성
+uv run --no-project --with "mcp>=2" python office_mcp.py           # stdio로 MCP 서버 실행
 ```
+
+uv 없이 쓰려면 `pip install "mcp>=2"` 후 `python office_mcp.py`로 실행합니다.
 
 ## 제공 도구
 
@@ -52,17 +55,12 @@ CREATE TABLE bookings  (site TEXT, date TEXT, equipment TEXT, start TEXT, end TE
 
 ## Claude Code 연결
 
-현재 `.mcp.json`은 범용 SQLite MCP 서버(`npx -y mcp-sqlite`)를 `office-db`라는 이름으로 등록합니다.
-이 저장소의 `office_mcp.py`를 쓰려면 아래처럼 등록하세요.
+이 폴더에서 Claude Code를 열면 `.mcp.json`에 등록된 서버 2개가 연결됩니다.
 
-```json
-{
-  "mcpServers": {
-    "office": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["office_mcp.py"]
-    }
-  }
-}
-```
+| 서버 | 실행 | 용도 |
+|---|---|---|
+| `office` | `uv run --no-project --with "mcp>=2" python office_mcp.py` | 이 저장소의 서버. 읽기 전용 조회 도구 2개 |
+| `office-db` | `npx -y mcp-sqlite office.db` | 범용 SQLite 서버. 테이블 조회·SQL 실행에 더해 **레코드 추가·수정·삭제도 가능** |
+
+`office-db`는 `office.db`를 직접 수정할 수 있으니, 조회만 필요하면 `office`를 쓰세요.
+`uv`와 `npx`(Node.js)가 PATH에 있어야 합니다.

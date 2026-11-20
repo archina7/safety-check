@@ -7,7 +7,7 @@ app = MCPServer("office")
 
 def rows(sql: str, *args) -> list[dict]:
     con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)  # 읽기 전용
-    con.row_factory = sqlite3.Rowcd
+    con.row_factory = sqlite3.Row
     try:
         return [dict(r) for r in con.execute(sql, args)]
     finally:
