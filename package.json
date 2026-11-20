@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler pages dev public --port 8788",
-    "test": "node --test test/"
+    "test": "node --test \"test/**/*.test.js\""
   },
   "devDependencies": {
     "wrangler": "4.165.0"
