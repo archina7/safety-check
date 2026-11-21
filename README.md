@@ -123,3 +123,7 @@ npm test      # wrangler pages dev 를 띄워 API 허용·거부 확인
 배포는 자동으로 하지 않습니다. `npm test` 통과 후 `npx wrangler pages deploy public --project-name safety-check --branch main`으로 직접 배포합니다 → https://safety-check-ezs.pages.dev . GitHub Actions(`.github/workflows/test.yml`)는 테스트만 돕니다.
 
 Pages 환경 변수 `GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS`, `SESSION_SECRET`이 하나라도 없으면 사이트 전체가 "준비 중"(503)으로 막힙니다. 로컬은 `.dev.vars.example`을 `.dev.vars`로 복사해 채웁니다.
+
+AI 화면(OpenAI Responses API, 키는 `OPENAI_API_KEY` 또는 `OPEN_API_KEY`): TBM 공지(`tbm.html`), 민원 답변(`complaint.html`), 계약 조항 검토(`contract.html`), 입찰 우선순위(`bid.html`), 보도자료 초안·평가(`press.html`), 현장 자료 질의(`ask.html`), 작업 허가서(`permit.html`).
+
+작업 허가서는 D1 `safety-check-permits`(바인딩 `DB`)에 저장하고, 표는 처음 쓸 때 코드가 만듭니다. 승인·반려는 `MANAGER_EMAILS`(쉼표 구분, `ALLOWED_EMAILS`에도 있어야 함)에 있는 사람만 할 수 있으므로 운영에도 `npx wrangler pages secret put MANAGER_EMAILS --project-name safety-check`로 넣어야 합니다.
