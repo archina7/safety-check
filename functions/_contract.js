@@ -1,10 +1,10 @@
 // 계약서 조항 → 세 관점 동시 검토 → 코드로 통합 (CLAUDE.md 'AI 기능 규칙')
 //   1단계 조항 나누기 (코드): '제N조(제목)' 로 시작하는 줄을 조항으로 본다
-//   2단계 법무·원가·공정 검토 (Claude Agent, CLAUDE_MODEL): 동시에 실행. 세 검토는 같은 계약서만 받고 서로의 결과를 보지 않는다
+//   2단계 법무·원가·공정 검토 (AI Agent, OPENAI_MODEL): 동시에 실행. 세 검토는 같은 계약서만 받고 서로의 결과를 보지 않는다
 //   3단계 조항 번호 확인 (코드): 계약서에 없는 조항 번호를 근거로 든 의견은 버린다
-//   4단계 지체상금 계산 (코드): Claude 는 계약서 문구만 옮겨 적고, 숫자를 읽어 계산하는 것은 코드가 한다
+//   4단계 지체상금 계산 (코드): AI 는 계약서 문구만 옮겨 적고, 숫자를 읽어 계산하는 것은 코드가 한다
 //   5단계 통합 (코드): 같은 조항의 위험도가 두 단계 이상 차이 나면 '의견 충돌'. 평균을 내지 않고 세 의견을 나란히 둔다
-import { callAgent, codeStep, createClient, errorText, escapeTags, finishRun, isNonEmptyString, models, newLog, stepRecord, unsupportedNumbers } from './_claude.js';
+import { callAgent, codeStep, createClient, errorText, escapeTags, finishRun, isNonEmptyString, models, newLog, stepRecord, unsupportedNumbers } from './_ai.js';
 
 export const RISKS = ['낮음', '보통', '높음', '매우높음'];
 export const CONFLICT_GAP = 2; // 위험도 단계 차이가 이 값 이상이면 의견 충돌
@@ -312,7 +312,6 @@ export async function runContractWorkflow({ contract, delay_days } = {}, env, { 
       schema: SCHEMAS[`${p.key}Output`],
       validate: (out) => validateReview(out, { cost }),
       effort: 'medium',
-      fallbacks: true,
     }, log);
     return { p, log, started, promise };
   });

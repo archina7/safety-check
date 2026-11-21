@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { makeSession } from '../functions/_lib.js';
-import { mockReply } from './helpers/claude-mock.js';
+import { mockReply } from './helpers/ai-mock.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8799; // npm run dev(8788)와 겹치지 않게
@@ -25,8 +25,8 @@ const attacker = generateKeyPairSync('rsa', { modulusLength: 2048 });
 
 let server;
 let certsServer;
-let claudeServer; // Claude API 대신 고정 응답을 주는 로컬 서버 (API 키 없이 테스트)
-const claudeRequests = [];
+let aiServer; // OpenAI API 대신 고정 응답을 주는 로컬 서버 (API 키 없이 테스트)
+const aiRequests = [];
 
 const b64url = (v) => Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).toString('base64url');
 
@@ -87,18 +87,18 @@ before(async () => {
   await new Promise((r) => certsServer.listen(0, '127.0.0.1', r));
   const certsUrl = `http://127.0.0.1:${certsServer.address().port}/certs`;
 
-  claudeServer = createServer((req, res) => {
+  aiServer = createServer((req, res) => {
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       const params = JSON.parse(body || '{}');
-      claudeRequests.push({ path: req.url, headers: req.headers, params });
-      res.writeHead(200, { 'Content-Type': 'application/json', 'request-id': 'req_mock' });
+      aiRequests.push({ path: req.url, headers: req.headers, params });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'x-request-id': 'req_mock' });
       res.end(JSON.stringify(mockReply(params)));
     });
   });
-  await new Promise((r) => claudeServer.listen(0, '127.0.0.1', r));
-  const claudeUrl = `http://127.0.0.1:${claudeServer.address().port}`;
+  await new Promise((r) => aiServer.listen(0, '127.0.0.1', r));
+  const aiUrl = `http://127.0.0.1:${aiServer.address().port}`;
 
   const wrangler = path.join(root, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
   const bindings = [
@@ -106,8 +106,8 @@ before(async () => {
     `ALLOWED_EMAILS=${ALLOWED}, boss@example.com`,
     `SESSION_SECRET=${SECRET}`,
     `GOOGLE_CERTS_URL=${certsUrl}`,
-    'ANTHROPIC_API_KEY=fake',
-    `ANTHROPIC_BASE_URL=${claudeUrl}`,
+    'OPENAI_API_KEY=fake',
+    `OPENAI_BASE_URL=${aiUrl}`,
   ].flatMap((b) => ['--binding', b]);
   server = spawn(process.execPath, [wrangler, 'pages', 'dev', 'public', '--port', String(PORT), '--ip', '127.0.0.1', ...bindings], {
     cwd: root,
@@ -120,7 +120,7 @@ before(async () => {
 
 after(() => {
   certsServer?.close();
-  claudeServer?.close();
+  aiServer?.close();
   if (!server || server.exitCode !== null) return;
   if (process.platform === 'win32') {
     // workerd 자식 프로세스까지 함께 종료
@@ -409,7 +409,7 @@ test('거부: 로그인 설정이 없으면 화면은 한국어 안내(503), API
   }
 });
 
-// ---------- TBM → 안전 공지문 (Claude 는 고정 응답 서버) ----------
+// ---------- TBM → 안전 공지문 (AI 는 고정 응답 서버) ----------
 
 const tbmSamples = JSON.parse(readFileSync(path.join(root, 'public', 'tbm-samples.json'), 'utf8')).samples;
 const tbmRecord = (id) => tbmSamples.find((s) => s.id === id).record;
@@ -424,7 +424,7 @@ async function postTbm(record, { cookie, origin = BASE } = {}) {
 
 test('허용: TBM 정상 기록 → 3단계까지 실행하고 공지문(5줄 이내)을 돌려준다', async () => {
   const cookie = cookieFrom(await login(idToken()));
-  const before = claudeRequests.length;
+  const before = aiRequests.length;
   const res = await postTbm(tbmRecord('normal'), { cookie });
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -437,36 +437,37 @@ test('허용: TBM 정상 기록 → 3단계까지 실행하고 공지문(5줄 �
   assert.equal(body.totals.calls, 2);
 
   // 실제 SDK 가 보낸 요청: 키·모델·구조화 출력·fallback
-  const sent = claudeRequests.slice(before);
+  const sent = aiRequests.slice(before);
   assert.equal(sent.length, 2);
   assert.equal(sent[0].headers.authorization, 'Bearer fake'); // SDK 1.x 는 API 키를 Bearer 로 보낸다
-  assert.equal(sent[0].params.model, 'claude-haiku-5-5');
-  assert.equal(sent[0].params.output_config.format.type, 'json_schema');
-  assert.equal(sent[1].params.model, 'claude-opus-5-5');
-  assert.equal(sent[1].params.fallbacks, 'default');
-  assert.match(sent[1].headers['anthropic-beta'] || '', /server-side-fallback-2026-07-01/);
+  assert.equal(sent[0].params.model, 'gpt-6-luna');
+  assert.equal(sent[0].params.text.format.type, 'json_schema');
+  assert.equal(sent[0].path, '/responses', 'OpenAI Responses API 로 보낸다');
+  assert.equal(sent[0].headers.authorization, 'Bearer fake');
+  assert.equal(sent[1].params.model, 'gpt-6.2-astra');
+  assert.equal(sent[1].params.text.format.strict, true);
 });
 
 test('거부: TBM 대책 누락 기록 → 2단계에서 멈추고 누락 목록, 3단계 호출 없음', async () => {
   const cookie = cookieFrom(await login(idToken()));
-  const before = claudeRequests.length;
+  const before = aiRequests.length;
   const res = await postTbm(tbmRecord('missing'), { cookie });
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.status, 'blocked');
   assert.deepEqual(body.missing.map((m) => m.hazard), ['장비와 작업자 협착', '감전']);
   assert.deepEqual(body.steps.map((s) => s.name), ['1단계 추출', '2단계 검사']);
-  assert.equal(claudeRequests.length - before, 1, 'Claude 는 1단계에서 한 번만');
+  assert.equal(aiRequests.length - before, 1, 'AI 는 1단계에서 한 번만');
 });
 
-test('거부: TBM 빈 기록 → 422, Claude 호출 없음', async () => {
+test('거부: TBM 빈 기록 → 422, AI 호출 없음', async () => {
   const cookie = cookieFrom(await login(idToken()));
-  const before = claudeRequests.length;
+  const before = aiRequests.length;
   const res = await postTbm(tbmRecord('empty'), { cookie });
   assert.equal(res.status, 422);
   const body = await res.json();
   assert.equal(body.status, 'empty');
-  assert.equal(claudeRequests.length, before);
+  assert.equal(aiRequests.length, before);
 });
 
 test('거부: TBM API 는 로그인 필요, 다른 사이트 요청 403, GET 405', async () => {
@@ -478,7 +479,7 @@ test('거부: TBM API 는 로그인 필요, 다른 사이트 요청 403, GET 405
   assert.equal(page.status, 302);
 });
 
-// ---------- 현장 민원 분류 (Claude 는 고정 응답 서버) ----------
+// ---------- 현장 민원 분류 (AI 는 고정 응답 서버) ----------
 
 const complaintSamples = JSON.parse(readFileSync(path.join(root, 'public', 'complaint-samples.json'), 'utf8')).samples;
 const complaintOf = (id) => complaintSamples.find((s) => s.id === id);
@@ -494,7 +495,7 @@ async function postComplaint(body, { cookie, origin = BASE } = {}) {
 test('허용: 소음 민원 → Worker 분류 → 작업 예고 목록을 붙여 Agent 답변 초안', async () => {
   const cookie = cookieFrom(await login(idToken()));
   const s = complaintOf('noise-1');
-  const before = claudeRequests.length;
+  const before = aiRequests.length;
   const res = await postComplaint({ complaint: s.complaint, date: s.date }, { cookie });
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -502,8 +503,8 @@ test('허용: 소음 민원 → Worker 분류 → 작업 예고 목록을 붙여
   assert.equal(body.classification.category, '소음·진동');
   assert.equal(body.attachments.work_notices.length, 2);
   assert.ok(body.draft.draft.includes('07:00-12:00'), '붙인 자료의 시간대를 근거로 쓴다');
-  const sent = claudeRequests.slice(before);
-  assert.deepEqual(sent.map((r) => r.params.model), ['claude-haiku-5-5', 'claude-opus-5-5']);
+  const sent = aiRequests.slice(before);
+  assert.deepEqual(sent.map((r) => r.params.model), ['gpt-6-luna', 'gpt-6.2-astra']);
 });
 
 test('허용: 교통 민원 → 장비 반입 예약 시간대를 붙여 답변 초안', async () => {
@@ -514,26 +515,26 @@ test('허용: 교통 민원 → 장비 반입 예약 시간대를 붙여 답변 
   assert.deepEqual(body.attachments.equipment_bookings.map((b) => b.time), ['10:00-14:00']);
 });
 
-test('안전 민원 → 답변 초안 없이 긴급, Claude 는 분류 1회뿐', async () => {
+test('안전 민원 → 답변 초안 없이 긴급, AI 는 분류 1회뿐', async () => {
   const cookie = cookieFrom(await login(idToken()));
   const s = complaintOf('safety-1');
-  const before = claudeRequests.length;
+  const before = aiRequests.length;
   const body = await (await postComplaint({ complaint: s.complaint, date: s.date }, { cookie })).json();
   assert.equal(body.status, 'urgent');
   assert.equal(body.urgent, true);
   assert.equal(body.draft, undefined);
-  assert.equal(claudeRequests.length - before, 1);
+  assert.equal(aiRequests.length - before, 1);
 });
 
 test('거부: 애매한 민원(확신도 < 0.7)·기타 → 대기열, 자동 답변 없음', async () => {
   const cookie = cookieFrom(await login(idToken()));
   for (const id of ['vague-2', 'etc-1']) {
     const s = complaintOf(id);
-    const before = claudeRequests.length;
+    const before = aiRequests.length;
     const body = await (await postComplaint({ complaint: s.complaint, date: s.date }, { cookie })).json();
     assert.equal(body.status, 'queued', id);
     assert.equal(body.draft, undefined);
-    assert.equal(claudeRequests.length - before, 1, `${id}: 답변 초안 호출 없음`);
+    assert.equal(aiRequests.length - before, 1, `${id}: 답변 초안 호출 없음`);
   }
 });
 
@@ -546,7 +547,7 @@ test('거부: 민원 API 빈 입력 422, 로그인 없음 401, 다른 사이트 
   assert.equal((await fetch(`${BASE}/complaint`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
 });
 
-// ---------- 계약서 세 관점 검토 (Claude 는 고정 응답 서버) ----------
+// ---------- 계약서 세 관점 검토 (AI 는 고정 응답 서버) ----------
 
 const contractSamples = JSON.parse(readFileSync(path.join(root, 'public', 'contract-samples.json'), 'utf8')).samples;
 const contractText = (id) => contractSamples.find((s) => s.id === id).contract;
@@ -561,27 +562,27 @@ async function postContract(body, { cookie, origin = BASE } = {}) {
 
 test('허용: 계약서 → 세 관점 동시 검토(Agent 3회) → 의견 충돌·버린 의견·지체상금 계산', async () => {
   const cookie = cookieFrom(await login(idToken()));
-  const before = claudeRequests.length;
+  const before = aiRequests.length;
   const res = await postContract({ contract: contractText('onesided'), delay_days: '10' }, { cookie });
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.status, 'ok');
-  const sent = claudeRequests.slice(before);
+  const sent = aiRequests.slice(before);
   assert.equal(sent.length, 3);
-  assert.ok(sent.every((r) => r.params.model === 'claude-opus-5-5'));
-  assert.equal(new Set(sent.map((r) => r.params.messages[0].content)).size, 1, '세 검토는 같은 계약서만 받는다');
+  assert.ok(sent.every((r) => r.params.model === 'gpt-6.2-astra'));
+  assert.equal(new Set(sent.map((r) => r.params.input[1].content)).size, 1, '세 검토는 같은 계약서만 받는다');
   const r6 = body.review.clauses.find((c) => c.clause === '제6조');
   assert.equal(r6.conflict, true);
   assert.deepEqual(body.discarded.map((d) => d.clause), ['제15조']);
   assert.equal(body.delay_penalty.applied, '85,000,000원');
 });
 
-test('거부: 계약서 API 조항 없음 422(Claude 호출 없음), 로그인 없음 401, 다른 사이트 403, GET 405, 화면은 로그인 필요', async () => {
+test('거부: 계약서 API 조항 없음 422(AI 호출 없음), 로그인 없음 401, 다른 사이트 403, GET 405, 화면은 로그인 필요', async () => {
   const cookie = cookieFrom(await login(idToken()));
-  const before = claudeRequests.length;
+  const before = aiRequests.length;
   assert.equal((await postContract({ contract: '조항 번호가 없는 글' }, { cookie })).status, 422);
   assert.equal((await postContract({ contract: contractText('balanced'), delay_days: -3 }, { cookie })).status, 422);
-  assert.equal(claudeRequests.length, before);
+  assert.equal(aiRequests.length, before);
   assert.equal((await postContract({ contract: contractText('balanced') })).status, 401);
   assert.equal((await postContract({ contract: contractText('balanced') }, { cookie, origin: 'https://evil.example.com' })).status, 403);
   assert.equal((await fetch(`${BASE}/api/contract`, { headers: { Cookie: cookie } })).status, 405);

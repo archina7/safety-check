@@ -1,8 +1,8 @@
 // TBM 기록 → 안전 공지문 3단계 워크플로 (CLAUDE.md 'AI 기능 규칙')
-//   1단계 추출 (Claude Worker): TBM 기록 → [{task, hazard, measures[]}]
+//   1단계 추출 (AI Worker): TBM 기록 → [{task, hazard, measures[]}]
 //   2단계 검사 (코드): 위험요인마다 대책이 1개 이상인지. 하나라도 없으면 여기서 멈춘다
-//   3단계 작성 (Claude): 통과한 항목만으로 현장 게시용 공지문 5줄 이내
-import { callAgent, codeStep, createClient, errorText, escapeTags, finishRun, isNonEmptyString, models, newLog, stepRecord, unsupportedNumbers } from './_claude.js';
+//   3단계 작성 (AI): 통과한 항목만으로 현장 게시용 공지문 5줄 이내
+import { callAgent, codeStep, createClient, errorText, escapeTags, finishRun, isNonEmptyString, models, newLog, stepRecord, unsupportedNumbers } from './_ai.js';
 
 export { unsupportedNumbers };
 export const MAX_RECORD_CHARS = 5000;
@@ -109,7 +109,7 @@ export async function runTbmWorkflow(record, env, { client = null } = {}) {
   const steps = [];
   const finish = (status, extra) => finishRun('tbm_run', status, steps, runStarted, extra);
 
-  // 0) 입력 검사 (코드): 빈 기록은 Claude를 부르지 않는다
+  // 0) 입력 검사 (코드): 빈 기록은 AI를 부르지 않는다
   const text = typeof record === 'string' ? record.trim() : '';
   if (!text) {
     steps.push(codeStep('입력 검사', { record: record ?? '' }, { ok: false, reason: '빈 기록' }));
@@ -134,7 +134,7 @@ export async function runTbmWorkflow(record, env, { client = null } = {}) {
       user: `<tbm_record>\n${escapeTags(text)}\n</tbm_record>`,
       schema: SCHEMAS.extractOutput,
       validate: validateExtraction,
-      effort: 'low',
+      name: 'extraction',
       fallbacks: false, // Haiku 는 서버 측 fallback 이 없다
     }, log);
   } catch (e) {
@@ -167,7 +167,6 @@ export async function runTbmWorkflow(record, env, { client = null } = {}) {
       schema: SCHEMAS.writeOutput,
       validate: validateNotice,
       effort: 'medium',
-      fallbacks: true,
     }, log);
   } catch (e) {
     steps.push(stepRecord('3단계 작성', m.agent, writeInput, t, log, { output: null, error: errorText(e) }));

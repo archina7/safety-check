@@ -1,9 +1,9 @@
-// TBM 워크플로 단위 테스트: Claude 대신 가짜 client(고정 응답)를 써서 API 키 없이 돈다.
+// TBM 워크플로 단위 테스트: OpenAI 대신 가짜 client(고정 응답)를 써서 API 키 없이 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runTbmWorkflow, checkMeasures, validateExtraction, validateNotice, unsupportedNumbers } from '../functions/_tbm.js';
-import { fakeClient } from './helpers/claude-mock.js';
+import { fakeClient } from './helpers/ai-mock.js';
 
 const { samples } = JSON.parse(readFileSync(new URL('../public/tbm-samples.json', import.meta.url), 'utf8'));
 const sample = (id) => samples.find((s) => s.id === id).record;
@@ -33,16 +33,15 @@ test('허용: 정상 기록 → 1단계 추출 → 2단계 통과 → 3단계 �
   assert.ok(result.notice.lines.length >= 1 && result.notice.lines.length <= 5);
   assert.deepEqual(result.notice.unsupported_numbers, []);
 
-  // 모델·구조화 출력·fallback 설정
+  // 모델·구조화 출력(strict)·reasoning effort 설정
   const [extract, write] = client.requests;
-  assert.equal(extract.kind, 'messages');
-  assert.equal(extract.params.model, 'claude-haiku-5-5');
-  assert.equal(extract.params.output_config.format.type, 'json_schema');
-  assert.equal(write.kind, 'beta');
-  assert.equal(write.params.model, 'claude-opus-5-5');
-  assert.equal(write.params.fallbacks, 'default');
-  assert.equal(write.params.output_config.effort, 'medium');
-  assert.ok(!('thinking' in write.params), 'Opus 5.5 는 thinking 을 끄면 400');
+  assert.equal(extract.params.model, 'gpt-6-luna');
+  assert.equal(extract.params.text.format.type, 'json_schema');
+  assert.equal(write.params.model, 'gpt-6.2-astra');
+  assert.equal(write.params.text.format.strict, true);
+  assert.equal(write.params.reasoning.effort, 'medium');
+  assert.ok(!('temperature' in write.params), 'GPT-6.2 는 temperature 를 받지 않는다');
+  assert.ok(!('reasoning' in extract.params), 'Worker 는 모델 기본 effort');
 
   // 3단계 입력은 2단계를 통과한 항목뿐
   assert.deepEqual(result.steps[2].input.items, result.steps[1].output.passed);
@@ -66,11 +65,11 @@ test('거부: 대책 누락 기록 → 2단계에서 멈추고 누락 목록, 3�
     { task: '굴착기 터파기', hazard: '장비와 작업자 협착' },
     { task: '임시 분전반 연결', hazard: '감전' },
   ]);
-  assert.equal(client.requests.length, 1, '3단계(작성) Claude 호출이 없어야 한다');
+  assert.equal(client.requests.length, 1, '3단계(작성) AI 호출이 없어야 한다');
   assert.equal(result.notice, undefined);
 });
 
-test('거부: 빈 기록 → 입력 검사에서 멈추고 Claude를 부르지 않는다', async () => {
+test('거부: 빈 기록 → 입력 검사에서 멈추고 AI를 부르지 않는다', async () => {
   for (const record of [sample('empty'), '   \n  ', undefined, null, 123]) {
     const client = fakeClient();
     const { result } = await withLogs(() => runTbmWorkflow(record, env, { client }));
@@ -93,7 +92,7 @@ test('스키마가 안 맞으면 한 번 다시 요청해서 통과한다', asyn
   const { result } = await withLogs(() => runTbmWorkflow('재시도 기록 A', env, { client }));
   assert.equal(result.status, 'ok');
   assert.equal(result.steps[0].calls.length, 2);
-  assert.match(client.requests[1].params.messages[0].content, /형식 규칙을 어겼습니다/);
+  assert.match(client.requests[1].params.input[1].content, /형식 규칙을 어겼습니다/);
 });
 
 test('거부: 두 번 다 스키마가 안 맞으면 오류로 처리하고 더 부르지 않는다', async () => {
@@ -107,10 +106,10 @@ test('거부: 두 번 다 스키마가 안 맞으면 오류로 처리하고 더 
 test('거부: 공지문이 5줄을 넘으면 다시 요청하고, 그래도 넘으면 오류', async () => {
   const client = fakeClient();
   // 추출은 정상 항목, 작성 요청 본문에 '여섯줄' 이 들어가도록 항목 이름을 바꾼다
-  const orig = client.messages.create;
-  client.messages.create = async (p) => {
+  const orig = client.responses.create;
+  client.responses.create = async (p) => {
     const r = await orig(p);
-    r.content[0].text = r.content[0].text.replace('철근 배근', '여섯줄 테스트');
+    r.output[0].content[0].text = r.output[0].content[0].text.replace('철근 배근', '여섯줄 테스트');
     return r;
   };
   const { result } = await withLogs(() => runTbmWorkflow(sample('normal'), env, { client }));
@@ -119,17 +118,17 @@ test('거부: 공지문이 5줄을 넘으면 다시 요청하고, 그래도 넘�
   assert.equal(result.steps.at(-1).calls.length, 2);
 });
 
-test('거부: Claude가 거절(refusal)하면 오류로 처리한다', async () => {
+test('거부: AI가 거절(refusal)하면 오류로 처리한다', async () => {
   const client = fakeClient();
   const { result } = await withLogs(() => runTbmWorkflow('거절 기록', env, { client }));
   assert.equal(result.status, 'error');
   assert.match(result.message, /거절/);
 });
 
-test('모델은 CLAUDE_MODEL·CLAUDE_WORKER_MODEL 환경 변수로 바꿀 수 있다', async () => {
+test('모델은 OPENAI_MODEL·OPENAI_WORKER_MODEL 환경 변수로 바꿀 수 있다', async () => {
   const client = fakeClient();
-  await withLogs(() => runTbmWorkflow(sample('normal'), { CLAUDE_MODEL: 'claude-sonnet-5-5', CLAUDE_WORKER_MODEL: 'claude-haiku-4-5' }, { client }));
-  assert.deepEqual(client.requests.map((r) => r.params.model), ['claude-haiku-4-5', 'claude-sonnet-5-5']);
+  await withLogs(() => runTbmWorkflow(sample('normal'), { OPENAI_MODEL: 'gpt-6.2-sol', OPENAI_WORKER_MODEL: 'gpt-6.1-terra' }, { client }));
+  assert.deepEqual(client.requests.map((r) => r.params.model), ['gpt-6.1-terra', 'gpt-6.2-sol']);
 });
 
 test('2단계 검사(코드): 공백만 있는 대책은 대책으로 치지 않는다', () => {

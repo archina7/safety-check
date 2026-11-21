@@ -1,9 +1,9 @@
-// 민원 분류·처리 단위 테스트: Claude 대신 가짜 client(고정 응답)로 API 키 없이 돈다.
+// 민원 분류·처리 단위 테스트: OpenAI 대신 가짜 client(고정 응답)로 API 키 없이 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runComplaintWorkflow, decideRoute, validateClassification, validateDraft, todayKst, isValidDate, CATEGORIES, CONFIDENCE_THRESHOLD } from '../functions/_complaint.js';
-import { fakeClient } from './helpers/claude-mock.js';
+import { fakeClient } from './helpers/ai-mock.js';
 
 const { samples } = JSON.parse(readFileSync(new URL('../public/complaint-samples.json', import.meta.url), 'utf8'));
 const env = {};
@@ -53,14 +53,14 @@ for (const s of samples) {
     assert.ok(result.classification.confidence >= 0 && result.classification.confidence <= 1);
 
     // 분류는 Worker 모델
-    assert.equal(client.requests[0].params.model, 'claude-haiku-5-5');
-    assert.equal(client.requests[0].params.output_config.format.type, 'json_schema');
+    assert.equal(client.requests[0].params.model, 'gpt-6-luna');
+    assert.equal(client.requests[0].params.text.format.type, 'json_schema');
 
     if (exp.status === 'drafted') {
       // 답변 초안은 Agent 모델, 해당 날짜 자료를 붙인다
       assert.equal(client.requests.length, 2);
-      assert.equal(client.requests[1].params.model, 'claude-opus-5-5');
-      assert.equal(client.requests[1].params.fallbacks, 'default');
+      assert.equal(client.requests[1].params.model, 'gpt-6.2-astra');
+      assert.equal(client.requests[1].params.text.format.strict, true);
       const list = result.attachments[exp.attach];
       assert.equal(list.length, exp.count);
       assert.ok(list.every((x) => x.date === s.date), '해당 날짜 자료만');
@@ -68,7 +68,7 @@ for (const s of samples) {
       assert.deepEqual(result.draft.unsupported_numbers, []);
       assert.deepEqual(result.steps.map((x) => x.name), ['1단계 분류', '2단계 처리 방식', '3단계 답변 초안']);
     } else {
-      // 대기열·긴급은 답변 초안을 만들지 않는다 (Claude 는 분류 1회뿐)
+      // 대기열·긴급은 답변 초안을 만들지 않는다 (AI 는 분류 1회뿐)
       assert.equal(client.requests.length, 1);
       assert.equal(result.draft, undefined);
       assert.deepEqual(result.steps.map((x) => x.name), ['1단계 분류', '2단계 처리 방식']);
@@ -124,7 +124,7 @@ test('근거 없는 숫자가 초안에 나오면 표시한다', async () => {
   assert.deepEqual(result.draft.unsupported_numbers, ['5']); // 첨부의 '52m' 와 겹쳐도 숫자 단위로 비교
 });
 
-test('거부: 빈 민원·잘못된 날짜는 Claude 를 부르지 않는다', async () => {
+test('거부: 빈 민원·잘못된 날짜는 AI 를 부르지 않는다', async () => {
   for (const input of [{ complaint: '' }, { complaint: '   ' }, {}, { complaint: '쿵쿵', date: '2026-02-30' }, { complaint: '쿵쿵', date: '11/24' }]) {
     const { result, client } = await run(input);
     assert.equal(result.status, 'invalid', JSON.stringify(input));
@@ -148,8 +148,8 @@ test('거부: 확신도가 0~1 을 벗어나면 다시 요청하고, 그래도 �
 });
 
 test('모델은 환경 변수로 바꿀 수 있다', async () => {
-  const { client } = await run({ complaint: '쿵쿵', date: '2026-11-24' }, { env: { CLAUDE_MODEL: 'claude-sonnet-5-5', CLAUDE_WORKER_MODEL: 'claude-haiku-4-5' } });
-  assert.deepEqual(client.requests.map((r) => r.params.model), ['claude-haiku-4-5', 'claude-sonnet-5-5']);
+  const { client } = await run({ complaint: '쿵쿵', date: '2026-11-24' }, { env: { OPENAI_MODEL: 'gpt-6.2-sol', OPENAI_WORKER_MODEL: 'gpt-6.1-terra' } });
+  assert.deepEqual(client.requests.map((r) => r.params.model), ['gpt-6.1-terra', 'gpt-6.2-sol']);
 });
 
 test('스키마 검사 함수', () => {

@@ -1,4 +1,5 @@
 // POST /api/tbm  { record } → 3단계 워크플로 결과 (로그인 필요: _middleware.js)
+import { apiKey } from '../_ai.js';
 import { runTbmWorkflow } from '../_tbm.js';
 
 const STATUS_CODE = { ok: 200, blocked: 200, empty: 422, error: 502 };
@@ -9,8 +10,8 @@ export async function onRequestPost({ request, env }) {
   if (request.headers.get('Origin') !== url.origin || !(request.headers.get('Content-Type') || '').startsWith('application/json')) {
     return Response.json({ error: '허용되지 않은 요청입니다.' }, { status: 403 });
   }
-  if (!env.ANTHROPIC_API_KEY) {
-    console.error('[safety-check] ANTHROPIC_API_KEY 미설정');
+  if (!apiKey(env)) {
+    console.error('[safety-check] OPENAI_API_KEY 미설정');
     return Response.json({ status: 'error', message: 'AI 설정이 완료되지 않았습니다. 관리자에게 문의하세요.' }, { status: 503 });
   }
   let body;

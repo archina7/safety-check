@@ -1,10 +1,9 @@
-// Claude 호출 공용 모듈 (CLAUDE.md 'AI 기능 규칙')
-// - 공식 SDK, 키·모델은 env, 구조화 출력(JSON Schema), 스키마가 안 맞으면 1회 재요청 후 오류
+// AI 호출 공용 모듈 (CLAUDE.md 'AI 기능 규칙') — OpenAI Responses API
+// - 공식 SDK(openai), 키·모델은 env, 구조화 출력(JSON Schema, strict), 스키마가 안 맞으면 1회 재요청 후 오류
 // - 호출마다 모델·토큰·소요 시간을 남긴다
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
 export const MAX_ATTEMPTS = 2;
-const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
 export class AgentError extends Error {
   constructor(message, detail = {}) {
@@ -13,17 +12,24 @@ export class AgentError extends Error {
   }
 }
 
+export const DEFAULT_MODELS = { agent: 'gpt-6.2-astra', worker: 'gpt-6-luna' };
+
 export function models(env) {
   return {
-    agent: env.CLAUDE_MODEL || 'claude-opus-5-5',
-    worker: env.CLAUDE_WORKER_MODEL || 'claude-haiku-5-5',
+    agent: env.OPENAI_MODEL || DEFAULT_MODELS.agent,
+    worker: env.OPENAI_WORKER_MODEL || DEFAULT_MODELS.worker,
   };
+}
+
+// 키 이름은 OPENAI_API_KEY. Cloudflare 에 OPEN_API_KEY 로 등록한 값도 받는다
+export function apiKey(env) {
+  return env.OPENAI_API_KEY || env.OPEN_API_KEY || '';
 }
 
 // 테스트에서만 로컬 mock 서버로 보낼 수 있다. localhost 가 아니면 무시하고 실제 API를 쓴다
 function baseURL(env) {
   try {
-    const u = new URL(env.ANTHROPIC_BASE_URL);
+    const u = new URL(env.OPENAI_BASE_URL);
     if (u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost')) return u.origin;
   } catch {
     // 없거나 잘못된 주소
@@ -35,13 +41,13 @@ function baseURL(env) {
 // 호출 하나는 최대 90초 (SDK 기본 10분이면 화면이 먼저 포기한다)
 export const CALL_TIMEOUT_MS = 90_000;
 export function createClient(env) {
-  return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, baseURL: baseURL(env), maxRetries: 0, timeout: CALL_TIMEOUT_MS });
+  return new OpenAI({ apiKey: apiKey(env), baseURL: baseURL(env), maxRetries: 0, timeout: CALL_TIMEOUT_MS });
 }
 
 // 다시 시도해 볼 만한 오류: 연결 실패, 408·409·429·5xx. 시간 초과는 다시 기다리지 않는다
 export function isRetryable(e) {
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return false;
-  if (e instanceof Anthropic.APIConnectionError) return true;
+  if (e instanceof OpenAI.APIConnectionTimeoutError) return false;
+  if (e instanceof OpenAI.APIConnectionError) return true;
   const st = e?.status;
   return st === 408 || st === 409 || st === 429 || (typeof st === 'number' && st >= 500);
 }
@@ -50,7 +56,7 @@ export function isRetryable(e) {
 export function errorInfo(e) {
   return {
     status: e?.status ?? null,
-    type: e?.error?.error?.type ?? e?.constructor?.name ?? 'Error',
+    type: e?.type ?? e?.code ?? e?.constructor?.name ?? 'Error',
     request_id: e?.requestID ?? null,
   };
 }
@@ -62,12 +68,22 @@ export function escapeTags(s) {
 }
 
 export const RETRY_DELAY_MS = 1000;
+const MAX_OUTPUT_TOKENS = 16000;
 
 export const isNonEmptyString = (v) => typeof v === 'string' && v.trim().length > 0;
 
+// Responses API 응답에서 글과 거절 문구를 꺼낸다 (SDK 의 output_text 편의 속성에 기대지 않는다)
+function readOutput(res) {
+  const parts = (res.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []);
+  return {
+    text: parts.filter((c) => c.type === 'output_text').map((c) => c.text).join(''),
+    refusal: parts.find((c) => c.type === 'refusal')?.refusal ?? null,
+  };
+}
+
 // 구조화 출력으로 한 번 부르고, 응답이 JSON 이 아니거나 validate 가 문제를 돌려주면 한 번 더 부른다.
-// fallbacks: true 면 서버 측 대체 모델(거절 시)을 켠다 (Haiku 는 지원하지 않음)
-export async function callAgent(client, { model, system, user, schema, validate, effort, fallbacks, retryDelayMs = RETRY_DELAY_MS }, log) {
+// effort 를 주면 reasoning.effort 로 보낸다 (Worker 는 모델 기본값을 쓰도록 비워 둔다)
+export async function callAgent(client, { model, system, user, schema, name = 'result', validate, effort = null, retryDelayMs = RETRY_DELAY_MS }, log) {
   let lastProblem = '';
   let formatProblem = ''; // 이전 '응답'이 형식을 어겼을 때만 채운다. API 오류로 다시 부를 때는 안내를 붙이지 않는다
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -75,24 +91,26 @@ export async function callAgent(client, { model, system, user, schema, validate,
       ? `${user}\n\n<note>이전 응답이 형식 규칙을 어겼습니다: ${formatProblem}. 스키마와 규칙에 맞게 다시 답하세요.</note>`
       : user;
     formatProblem = '';
+    // 고정 지시는 첫 developer 메시지로 둔다 (프롬프트 캐시가 잘 맞도록)
     const params = {
       model,
-      max_tokens: 16000,
-      system,
-      messages: [{ role: 'user', content }],
-      output_config: { effort, format: { type: 'json_schema', schema } },
+      input: [
+        { role: 'developer', content: system },
+        { role: 'user', content },
+      ],
+      max_output_tokens: MAX_OUTPUT_TOKENS,
+      text: { format: { type: 'json_schema', name, strict: true, schema } },
+      ...(effort ? { reasoning: { effort } } : {}),
     };
     const started = Date.now();
     let res;
     try {
-      res = fallbacks
-        ? await client.beta.messages.create({ ...params, betas: [FALLBACK_BETA], fallbacks: 'default' })
-        : await client.messages.create(params);
+      res = await client.responses.create(params);
     } catch (e) {
       // 실패한 호출도 호출 수에 넣고, 원인을 로그로 남긴다
       const error = errorInfo(e);
       log.calls.push({ attempt, model, input_tokens: 0, output_tokens: 0, ms: Date.now() - started, error });
-      console.error(JSON.stringify({ event: 'claude_call_error', model, attempt, ...error }));
+      console.error(JSON.stringify({ event: 'ai_call_error', model, attempt, ...error }));
       if (attempt < MAX_ATTEMPTS && isRetryable(e)) {
         lastProblem = `API 오류 ${error.status ?? error.type}`;
         await new Promise((r) => setTimeout(r, retryDelayMs));
@@ -102,21 +120,23 @@ export async function callAgent(client, { model, system, user, schema, validate,
     }
     log.calls.push({
       attempt,
-      model: res.model,
+      model: res.model || model,
       input_tokens: res.usage?.input_tokens ?? 0,
       output_tokens: res.usage?.output_tokens ?? 0,
       ms: Date.now() - started,
     });
 
-    if (res.stop_reason === 'refusal') {
-      throw new AgentError('Claude가 요청을 거절했습니다.', { category: res.stop_details?.category ?? null });
+    const { text, refusal } = readOutput(res);
+    const reason = res.incomplete_details?.reason ?? null;
+    if (refusal !== null || reason === 'content_filter') {
+      throw new AgentError('AI가 요청을 거절했습니다.', { reason: refusal !== null ? 'refusal' : reason });
     }
-    const text = (res.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     let parsed = null;
     try {
+      if (res.status && res.status !== 'completed') throw new Error(res.status);
       parsed = JSON.parse(text);
     } catch {
-      lastProblem = res.stop_reason === 'max_tokens' ? '응답이 길이 제한에서 잘림' : 'JSON 아님';
+      lastProblem = reason === 'max_output_tokens' ? '응답이 길이 제한에서 잘림' : 'JSON 아님';
       formatProblem = lastProblem;
       continue;
     }
@@ -130,10 +150,10 @@ export async function callAgent(client, { model, system, user, schema, validate,
 
 export function errorText(e) {
   if (e instanceof AgentError) return e.message;
-  if (e instanceof Anthropic.AuthenticationError) return 'Claude API 키가 올바르지 않습니다.';
-  if (e instanceof Anthropic.RateLimitError) return 'Claude API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요.';
-  if (e instanceof Anthropic.APIConnectionError) return 'Claude API에 연결하지 못했습니다.';
-  if (e instanceof Anthropic.APIError) return `Claude API 오류 (${e.status ?? '알 수 없음'})`;
+  if (e instanceof OpenAI.AuthenticationError) return 'OpenAI API 키가 올바르지 않습니다.';
+  if (e instanceof OpenAI.RateLimitError) return 'OpenAI API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요.';
+  if (e instanceof OpenAI.APIConnectionError) return 'OpenAI API에 연결하지 못했습니다.';
+  if (e instanceof OpenAI.APIError) return `OpenAI API 오류 (${e.status ?? '알 수 없음'})`;
   return '처리 중 오류가 발생했습니다.';
 }
 

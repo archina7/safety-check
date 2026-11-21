@@ -1,8 +1,8 @@
 // 현장 민원 → 유형 분류 → 유형별 처리 (CLAUDE.md 'AI 기능 규칙')
-//   1단계 분류 (Claude Worker, CLAUDE_WORKER_MODEL): 유형·판단 이유·확신도
+//   1단계 분류 (AI Worker, OPENAI_WORKER_MODEL): 유형·판단 이유·확신도
 //   2단계 처리 방식 결정 (코드): 대기열 / 긴급 / 답변 초안 + 근거 자료(날짜별 일정)
-//   3단계 답변 초안 (Claude Agent, CLAUDE_MODEL): 소음·진동, 교통·주차만
-import { callAgent, codeStep, createClient, errorText, escapeTags, finishRun, isNonEmptyString, models, newLog, stepRecord, unsupportedNumbers } from './_claude.js';
+//   3단계 답변 초안 (AI Agent, OPENAI_MODEL): 소음·진동, 교통·주차만
+import { callAgent, codeStep, createClient, errorText, escapeTags, finishRun, isNonEmptyString, models, newLog, stepRecord, unsupportedNumbers } from './_ai.js';
 import { equipmentBookingsOn, workNoticesOn } from './_site-data.js';
 
 export const CATEGORIES = ['소음·진동', '교통·주차', '안전', '먼지', '기타'];
@@ -155,8 +155,7 @@ export async function runComplaintWorkflow({ complaint, date } = {}, env, { clie
       user: `<complaint date="${day}">\n${escapeTags(text)}\n</complaint>`,
       schema: SCHEMAS.classifyOutput,
       validate: validateClassification,
-      effort: 'low',
-      fallbacks: false,
+      name: 'classification',
     }, log);
   } catch (e) {
     steps.push(stepRecord('1단계 분류', m.worker, classifyInput, t, log, { output: null, error: errorText(e) }));
@@ -190,7 +189,6 @@ export async function runComplaintWorkflow({ complaint, date } = {}, env, { clie
       schema: SCHEMAS.draftOutput,
       validate: validateDraft,
       effort: 'medium',
-      fallbacks: true,
     }, log);
   } catch (e) {
     steps.push(stepRecord('3단계 답변 초안', m.agent, draftInput, t, log, { output: null, error: errorText(e) }));

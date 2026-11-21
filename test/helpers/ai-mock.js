@@ -1,4 +1,4 @@
-// Claude 호출을 대신하는 고정 응답(mock). 요청의 system·user 내용을 보고 정해진 답을 돌려준다.
+// OpenAI 호출을 대신하는 고정 응답(mock). 요청의 system·user 내용을 보고 정해진 답을 돌려준다.
 // 단위 테스트(가짜 client)와 e2e 테스트(로컬 HTTP 서버) 가 함께 쓴다.
 
 const NORMAL_ITEMS = [
@@ -101,10 +101,15 @@ function textOf(content) {
   return typeof content === 'string' ? content : (content || []).map((c) => c.text || '').join('');
 }
 
-// params: Messages API 요청 본문. 돌려주는 값: Messages API 응답 본문
+// 요청의 developer(고정 지시)·user(입력) 메시지 글
+export function requestText(params, role) {
+  return textOf((params.input || []).filter((m) => m.role === role).at(-1)?.content);
+}
+
+// params: OpenAI Responses API 요청 본문. 돌려주는 값: Responses API 응답 본문
 export function mockReply(params) {
-  const system = textOf(params.system);
-  const user = textOf(params.messages?.at(-1)?.content);
+  const system = requestText(params, 'developer');
+  const user = requestText(params, 'user');
   let text;
 
   if (system.includes('관점에서만 검토하는 검토자')) {
@@ -131,25 +136,30 @@ export function mockReply(params) {
     text = '{}';
   }
 
+  const refused = user.includes('거절');
   return {
-    id: `msg_mock_${Math.random().toString(36).slice(2)}`,
-    type: 'message',
-    role: 'assistant',
+    id: `resp_mock_${Math.random().toString(36).slice(2)}`,
+    object: 'response',
+    status: 'completed',
+    incomplete_details: null,
     model: params.model,
-    content: [{ type: 'text', text }],
-    stop_reason: user.includes('거절') ? 'refusal' : 'end_turn',
-    stop_sequence: null,
-    stop_details: user.includes('거절') ? { type: 'refusal', category: null, explanation: 'mock' } : null,
-    usage: { input_tokens: Math.ceil((system.length + user.length) / 2), output_tokens: Math.ceil(text.length / 2) },
+    output: [{
+      id: 'msg_mock',
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      content: [refused ? { type: 'refusal', refusal: 'mock' } : { type: 'output_text', text, annotations: [] }],
+    }],
+    usage: { input_tokens: Math.ceil((system.length + user.length) / 2), output_tokens: Math.ceil(text.length / 2), total_tokens: 0 },
   };
 }
 
 // 단위 테스트용 가짜 SDK client. 받은 요청을 requests 에 남긴다
 export function fakeClient() {
   const requests = [];
-  const create = (kind) => async (params) => {
-    requests.push({ kind, params });
+  const create = async (params) => {
+    requests.push({ params });
     return mockReply(params);
   };
-  return { requests, messages: { create: create('messages') }, beta: { messages: { create: create('beta') } } };
+  return { requests, responses: { create } };
 }

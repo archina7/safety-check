@@ -46,7 +46,7 @@ function stepView(step, badge = null) {
 function totalsView(t) {
   return el('p', { className: 'totals' }, [
     el('span', { textContent: `전체 ${sec(t.ms)}` }),
-    el('span', { textContent: `Claude 호출 ${t.calls}회` }),
+    el('span', { textContent: `AI 호출 ${t.calls}회` }),
     el('span', { textContent: `토큰 입력 ${t.input_tokens} · 출력 ${t.output_tokens}` }),
   ]);
 }
