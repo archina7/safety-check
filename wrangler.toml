@@ -1,3 +1,9 @@
 name = "safety-check"
 pages_build_output_dir = "./public"
 compatibility_date = "2025-09-01"
+
+# 작업 허가서 저장소. 표는 처음 쓸 때 functions/_permit-store.js 가 만든다
+[[d1_databases]]
+binding = "DB"
+database_name = "safety-check-permits"
+database_id = "2d89427d-7d81-459c-b914-c7bf52596f2f"

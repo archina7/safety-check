@@ -12,6 +12,7 @@ Cloudflare Pages 정적 화면(public/)과 Pages Functions(functions/)로 된 �
 - 테스트: `npm test` (wrangler pages dev 를 띄워 로그인 허용·거부를 확인한다). 구글 대신 테스트용 RSA 키로 ID 토큰을 만들고 `GOOGLE_CERTS_URL`(localhost 주소만 받아들임)로 공개키를 넘긴다. `.dev.vars` 가 있으면 테스트 설정을 덮어쓸 수 있으니 테스트가 그 이유로 멈추면 잠시 치운다
 - 배포: 자동 배포는 쓰지 않는다. `npm test` 통과 후 `npx wrangler pages deploy public --project-name safety-check --branch main` 으로 직접 배포한다 → https://safety-check-ezs.pages.dev . GitHub Actions 는 테스트만 돈다
 - Pages 환경 변수(`GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS`, `SESSION_SECRET`)가 하나라도 없으면 사이트 전체가 503 이다 (`npx wrangler pages secret put <이름> --project-name safety-check`)
+- 작업 허가서는 D1(바인딩 `DB`, 표는 처음 쓸 때 코드가 만든다)에 저장한다. 없으면 허가서 API만 503. 승인·반려는 `MANAGER_EMAILS`(ALLOWED_EMAILS 에도 있는 사람)만 하고, 상태를 승인·반려로 바꾸는 코드는 `functions/_permit-store.js` 의 `decide()` 하나다 (test/permit.test.js 가 정적 검사로 확인)
 
 ## 규칙
 

@@ -1,0 +1,25 @@
+{
+  "_note": "합성(예시) 작업 허가 신청서. 실제 현장 자료가 아니다. 화면의 예시 버튼과 테스트가 함께 쓴다. 화면은 작업일을 내일 날짜로 바꿔 넣는다.",
+  "samples": [
+    {
+      "id": "good-height",
+      "title": "고소 · 외부 비계 해체 (갖춤)",
+      "form": { "type": "고소", "title": "외부 비계 해체", "location": "북측 외부 비계 6층", "work_date": "2026-11-24", "start_time": "08:00", "end_time": "12:00", "supervisor": "김반장", "workers": 4, "description": "6층 외부 비계 해체 후 자재 하강", "height_m": 18, "measures": ["안전대 착용·부착설비 확인", "작업발판·안전난간 설치", "하부 출입 통제", "추락방호망 설치 또는 대체 조치"], "other_measures": "" }
+    },
+    {
+      "id": "good-hot",
+      "title": "화기 · 배관 용접 (갖춤)",
+      "form": { "type": "화기", "title": "배관 용접", "location": "3층 기계실", "work_date": "2026-11-24", "start_time": "13:00", "end_time": "17:00", "supervisor": "이주임", "workers": 2, "description": "냉온수 배관 용접", "fire_watch": "박감시", "measures": ["작업 반경 내 가연물 제거 또는 방화포 덮기", "소화기 비치", "화재감시자 배치", "불티 비산 방지 조치"], "other_measures": "" }
+    },
+    {
+      "id": "good-confined",
+      "title": "밀폐 · 정화조 점검 (갖춤)",
+      "form": { "type": "밀폐", "title": "정화조 내부 점검", "location": "지하 2층 정화조", "work_date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "supervisor": "최반장", "workers": 2, "description": "정화조 내부 균열 점검", "oxygen_pct": 20.5, "h2s_ppm": 0, "co_ppm": 3, "measures": ["작업 전 산소·유해가스 농도 측정", "작업 중 환기", "외부 감시인 배치", "송기마스크 등 호흡용 보호구", "출입 인원 확인"], "other_measures": "" }
+    },
+    {
+      "id": "lacking-confined",
+      "title": "밀폐 · 집수정 청소 (보완 필요)",
+      "form": { "type": "밀폐", "title": "집수정 청소", "location": "지하 3층 집수정", "work_date": "2026-11-25", "start_time": "13:00", "end_time": "15:00", "supervisor": "", "workers": 3, "description": "집수정 슬러지 제거", "oxygen_pct": 17.2, "h2s_ppm": 12, "co_ppm": 5, "measures": ["작업 중 환기", "출입 인원 확인"], "other_measures": "" }
+    }
+  ]
+}

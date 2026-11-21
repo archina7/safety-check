@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#212121">
+  <title>작업 허가서 · 현장 안전점검</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/agent.css">
+  <style>
+    .fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    @media (min-width: 768px) { .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .fields .wide { grid-column: 1 / -1; } }
+    .fields input, .fields select, #type { width: 100%; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; color: var(--ink); }
+    .fields textarea { min-height: 88px; }
+    .fields input:focus-visible, .fields select:focus-visible, #type:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .checks { margin: 12px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+    .checks legend { font-weight: 700; padding: 0 4px; }
+    .checks label { display: flex; gap: 10px; align-items: center; min-height: 44px; }
+    .checks input { width: 22px; height: 22px; flex: none; }
+    .flow { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0 0 12px; padding: 0; font-size: 0.8125rem; }
+    .flow li { padding: 4px 10px; border-radius: 999px; background: #f3f4f6; color: var(--ink-soft); }
+    .flow li.done { background: var(--ok-bg); color: var(--ok); }
+    .flow li.now { background: var(--brand); color: #fff; font-weight: 700; }
+    .flow li.rej.now { background: var(--bad); }
+    .rec { padding: 12px; border-radius: 10px; margin: 0 0 12px; border: 2px solid var(--line); }
+    .rec.ok { border-color: #86efac; background: var(--ok-bg); }
+    .rec.no { border-color: #fcd34d; background: var(--warn-bg); }
+    .rec h3 { margin: 0 0 6px; font-size: 1rem; }
+    .decide { padding: 12px; border: 2px solid var(--brand); border-radius: var(--radius); margin: 0 0 12px; }
+    .decide .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .decide .btns button { flex: 1 1 140px; }
+    button.approve { background: var(--ok); color: #fff; border: 0; }
+    button.reject { background: var(--bad); color: #fff; border: 0; }
+    .rows { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+    .rows button { width: 100%; text-align: left; display: grid; gap: 2px; padding: 10px 12px; min-height: 44px; font-weight: 400; }
+    .rows button[aria-current="true"] { border: 2px solid var(--brand); }
+    .rows .t { font-weight: 700; }
+    .rows .s { font-size: 0.8125rem; color: var(--ink-soft); }
+    table.hist { width: 100%; border-collapse: collapse; font-size: 0.8125rem; table-layout: fixed; margin: 0 0 12px; }
+    table.hist th, table.hist td { border: 1px solid var(--line); padding: 6px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    table.hist th { background: #f9fafb; }
+    .list { margin: 4px 0 0; padding-left: 20px; font-weight: 400; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap head">
+      <h1>작업 허가서 검토</h1>
+      <a href="/">점검표로</a>
+    </div>
+  </header>
+
+  <main class="wrap grid">
+    <section class="card" aria-labelledby="in-title">
+      <h2 id="in-title">허가 신청</h2>
+      <p class="hint" style="margin:0 0 8px">예시(합성) 신청서</p>
+      <div class="samples" id="samples"></div>
+      <label class="lbl" for="type">작업 종류</label>
+      <select id="type"></select>
+      <div class="fields" id="fields" style="margin-top:10px"></div>
+      <fieldset class="checks" id="measures"><legend>필수 안전대책 (확인한 것만 체크)</legend></fieldset>
+      <div class="fields" style="margin-top:10px">
+        <div class="wide"><label class="lbl" for="other_measures">기타 안전대책</label><textarea id="other_measures"></textarea></div>
+      </div>
+      <p class="hint">신청하면 검토 Agent 가 누락 항목과 위험 대책을 점검해 '승인 권고/보완 요청'을 씁니다. 그 뒤 '관리자 확인 대기'에서 멈추고, 승인·반려는 관리자만 할 수 있습니다.</p>
+      <button type="button" class="primary" id="submit" style="margin-top:12px">신청하고 검토받기</button>
+    </section>
+
+    <section class="card" aria-labelledby="out-title">
+      <h2 id="out-title">허가서</h2>
+      <div id="me" class="hint" style="margin:0 0 8px"></div>
+      <div id="detail" aria-live="polite"><p class="empty-state">목록에서 허가서를 고르거나 새로 신청하세요.</p></div>
+      <h2>허가서 목록</h2>
+      <ol class="rows" id="list"></ol>
+      <h2>승인·반려 이력</h2>
+      <div id="history"></div>
+    </section>
+  </main>
+
+  <script src="/agent-ui.js" defer></script>
+  <script src="/permit.js" defer></script>
+</body>
+</html>

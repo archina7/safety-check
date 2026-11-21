@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#212121">
+  <title>현장 데이터 질의 · 현장 안전점검</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/agent.css">
+  <style>
+    #question { min-height: 96px; }
+    .answer { margin: 0 0 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; font-size: 1.0625rem; white-space: pre-wrap; }
+    table.used { width: 100%; border-collapse: collapse; margin: 0 0 12px; font-size: 0.875rem; table-layout: fixed; }
+    table.used th, table.used td { border: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    table.used th { background: #f9fafb; }
+    table.used th:first-child { width: 2.5em; }
+    table.used th:last-child { width: 30%; }
+    .list { margin: 4px 0 0; padding-left: 20px; font-weight: 400; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap head">
+      <h1>현장 데이터 질의</h1>
+      <a href="/">점검표로</a>
+    </div>
+  </header>
+
+  <main class="wrap grid">
+    <section class="card" aria-labelledby="in-title">
+      <h2 id="in-title">질문</h2>
+      <label class="lbl" for="question">현장 관리자 질문</label>
+      <textarea id="question" maxlength="500" placeholder="예) 오늘 협력사별 출역 인원 알려줘"></textarea>
+      <p class="hint">예시 질문 (합성 데이터, 2026-11-18~11-25)</p>
+      <div class="samples" id="samples"></div>
+      <p class="hint">Agent 가 필요한 도구만 골라 부릅니다: 공정률(get_progress), 출역 인원(get_workforce), 미완료 안전점검(get_inspections). 모두 읽기 전용이고, 한 질문에 도구는 최대 5회까지 부릅니다. 도구 결과에 없는 내용은 답하지 않습니다.</p>
+      <button type="button" class="primary" id="run" style="margin-top:12px">물어보기</button>
+    </section>
+
+    <section class="card" aria-labelledby="out-title" aria-live="polite">
+      <h2 id="out-title">답변</h2>
+      <div id="result"><p class="empty-state">아직 질문하지 않았습니다.</p></div>
+    </section>
+  </main>
+
+  <script src="/agent-ui.js" defer></script>
+  <script src="/ask.js" defer></script>
+</body>
+</html>

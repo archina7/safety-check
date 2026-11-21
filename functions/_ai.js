@@ -148,6 +148,39 @@ export async function callAgent(client, { model, system, user, schema, name = 'r
   throw new AgentError(`응답이 스키마에 맞지 않습니다 (${MAX_ATTEMPTS}회 시도): ${lastProblem}`);
 }
 
+// 도구를 쓰는 Agent 용: 요청 하나를 보내고 호출 기록을 남긴다. API 오류는 MAX_ATTEMPTS 안에서 다시 보낸다.
+// 응답 해석(도구 호출·최종 답)은 부르는 쪽이 한다
+export async function createResponse(client, params, log, { retryDelayMs = RETRY_DELAY_MS } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    const started = Date.now();
+    try {
+      const res = await client.responses.create({ max_output_tokens: MAX_OUTPUT_TOKENS, ...params });
+      log.calls.push({
+        attempt,
+        model: res.model || params.model,
+        input_tokens: res.usage?.input_tokens ?? 0,
+        output_tokens: res.usage?.output_tokens ?? 0,
+        ms: Date.now() - started,
+      });
+      const { text, refusal } = readOutput(res);
+      if (refusal !== null || res.incomplete_details?.reason === 'content_filter') {
+        throw new AgentError('AI가 요청을 거절했습니다.', { reason: refusal !== null ? 'refusal' : 'content_filter' });
+      }
+      return { res, text };
+    } catch (e) {
+      if (e instanceof AgentError) throw e;
+      const error = errorInfo(e);
+      log.calls.push({ attempt, model: params.model, input_tokens: 0, output_tokens: 0, ms: Date.now() - started, error });
+      console.error(JSON.stringify({ event: 'ai_call_error', model: params.model, attempt, ...error }));
+      if (attempt < MAX_ATTEMPTS && isRetryable(e)) {
+        await new Promise((r) => setTimeout(r, retryDelayMs));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 export function errorText(e) {
   if (e instanceof AgentError) return e.message;
   if (e instanceof OpenAI.AuthenticationError) return 'OpenAI API 키가 올바르지 않습니다.';

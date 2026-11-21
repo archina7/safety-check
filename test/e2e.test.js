@@ -7,7 +7,8 @@ import { generateKeyPairSync, sign, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { makeSession } from '../functions/_lib.js';
 import { mockReply } from './helpers/ai-mock.js';
 
@@ -19,6 +20,8 @@ const CLIENT_ID = 'test-client.apps.googleusercontent.com';
 const ALLOWED = 'inspector@example.com';
 const SECRET = randomBytes(32).toString('hex');
 const KID = 'test-kid';
+const MANAGER = 'boss@example.com'; // ALLOWED_EMAILS 에도 있는 관리자
+let stateDir;
 
 const google = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const attacker = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -107,9 +110,12 @@ before(async () => {
     `SESSION_SECRET=${SECRET}`,
     `GOOGLE_CERTS_URL=${certsUrl}`,
     'OPENAI_API_KEY=fake',
+    `MANAGER_EMAILS=${MANAGER}`,
     `OPENAI_BASE_URL=${aiUrl}`,
   ].flatMap((b) => ['--binding', b]);
-  server = spawn(process.execPath, [wrangler, 'pages', 'dev', 'public', '--port', String(PORT), '--ip', '127.0.0.1', ...bindings], {
+  // 작업 허가서 저장소(D1)는 실행마다 빈 임시 폴더에 만든다
+  stateDir = mkdtempSync(path.join(tmpdir(), 'safety-check-e2e-'));
+  server = spawn(process.execPath, [wrangler, 'pages', 'dev', 'public', '--port', String(PORT), '--ip', '127.0.0.1', '--d1', 'DB', '--persist-to', stateDir, ...bindings], {
     cwd: root,
     stdio: 'ignore',
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
@@ -121,12 +127,16 @@ before(async () => {
 after(() => {
   certsServer?.close();
   aiServer?.close();
-  if (!server || server.exitCode !== null) return;
-  if (process.platform === 'win32') {
-    // workerd 자식 프로세스까지 함께 종료
-    try { execFileSync('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
-  } else {
-    server.kill('SIGTERM');
+  if (server && server.exitCode === null) {
+    if (process.platform === 'win32') {
+      // workerd 자식 프로세스까지 함께 종료
+      try { execFileSync('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+    } else {
+      server.kill('SIGTERM');
+    }
+  }
+  if (stateDir) {
+    try { rmSync(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
   }
 });
 
@@ -590,4 +600,246 @@ test('거부: 계약서 API 조항 없음 422(AI 호출 없음), 로그인 없�
   const page = await fetch(`${BASE}/contract`, { headers: { Accept: 'text/html', Cookie: cookie } });
   assert.equal(page.status, 200);
   assert.match(await page.text(), /계약서 조항 검토/);
+});
+
+// ---------- 입찰공고 우선순위 (AI 는 고정 응답 서버) ----------
+
+const bidSample = JSON.parse(readFileSync(path.join(root, 'public', 'bid-samples.json'), 'utf8'));
+const BID_HEAD = ['공고번호', '공고명', '발주기관', '공종', '지역', '추정가격', '마감일시', '참가자격'];
+function bidTable(bids) {
+  const after = (days, time) => `${new Date(Date.now() + 9 * 3600 * 1000 + days * 86_400_000).toISOString().slice(0, 10)} ${time}`;
+  return [BID_HEAD.join('\t'), ...bids.map((b) => [b.id, b.title, b.agency, b.trade, b.region, b.amount, after(b.days, b.time), b.qualification].join('\t'))].join('\n');
+}
+
+async function postBid(body, { cookie, origin = BASE } = {}) {
+  return fetch(`${BASE}/api/bid`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+test('허용: 입찰공고 13건 → Worker 10건(Worker 모델) + Orchestrator 1회 → 점수표, 제외 공고 따로', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = aiRequests.length;
+  const res = await postBid({ bids: bidTable(bidSample.bids), company: bidSample.company }, { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'ok');
+  const sent = aiRequests.slice(before);
+  assert.equal(sent.length, 11);
+  assert.equal(sent.filter((r) => r.params.model === 'gpt-6-luna').length, 10);
+  assert.equal(sent.filter((r) => r.params.model === 'gpt-6.2-astra').length, 1);
+  assert.equal(body.rows.length, 10);
+  assert.deepEqual(body.skipped.expired.map((b) => b.id), ['2026-B-0113']);
+  assert.equal(body.skipped.overflow.length, 2);
+});
+
+test('허용: Worker 하나가 실패해도 나머지로 표를 만들고 실패 공고를 따로 보여 준다', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const bids = bidSample.bids.map((b) => (b.id === '2026-B-0108' ? { ...b, title: '검토실패 공사' } : b));
+  const res = await postBid({ bids: bidTable(bids), company: bidSample.company }, { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'partial');
+  assert.deepEqual(body.failed.map((f) => f.id), ['2026-B-0108']);
+  assert.equal(body.rows.length, 9);
+});
+
+test('거부: 입찰 API 입력 오류 422(AI 호출 없음), 로그인 없음 401, 다른 사이트 403, GET 405, 화면은 로그인 필요', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = aiRequests.length;
+  assert.equal((await postBid({ bids: '표 아님', company: bidSample.company }, { cookie })).status, 422);
+  assert.equal((await postBid({ bids: bidTable(bidSample.bids), company: '' }, { cookie })).status, 422);
+  assert.equal((await postBid({ bids: bidTable(bidSample.bids), company: bidSample.company, weights: { trade: 0, region: 0, deadline: 0, qualification: 0 } }, { cookie })).status, 422);
+  assert.equal(aiRequests.length, before);
+  assert.equal((await postBid({ bids: bidTable(bidSample.bids), company: bidSample.company })).status, 401);
+  assert.equal((await postBid({ bids: bidTable(bidSample.bids), company: bidSample.company }, { cookie, origin: 'https://evil.example.com' })).status, 403);
+  assert.equal((await fetch(`${BASE}/api/bid`, { headers: { Cookie: cookie } })).status, 405);
+  assert.equal((await fetch(`${BASE}/bid`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
+  const page = await fetch(`${BASE}/bid`, { headers: { Accept: 'text/html', Cookie: cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /입찰 참여 우선순위/);
+  const mod = await fetch(`${BASE}/bid-score.js`, { headers: { Cookie: cookie } });
+  assert.equal(mod.status, 200);
+  assert.match(await mod.text(), /export function rank/);
+});
+
+// ---------- 보도자료 작성·평가 (AI 는 고정 응답 서버) ----------
+
+const pressSample = JSON.parse(readFileSync(path.join(root, 'public', 'press-samples.json'), 'utf8'));
+const pressFacts = (id) => pressSample.samples.find((s) => s.id === id).facts;
+
+async function postPress(body, { cookie, origin = BASE } = {}) {
+  return fetch(`${BASE}/api/press`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+test('허용: 보도자료 초안 → 평가 실패 → 1회 수정 → 통과(승인 대기). 게시 API 는 없다', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = aiRequests.length;
+  const res = await postPress({ facts: pressFacts('completion'), rules: pressSample.rules }, { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'passed');
+  assert.equal(body.revisions, 1);
+  assert.equal(aiRequests.length - before, 4);
+  const publish = await fetch(`${BASE}/api/press/publish`, { method: 'POST', headers: { Cookie: cookie, Origin: BASE, 'Content-Type': 'application/json' }, body: '{}' });
+  assert.ok([404, 405].includes(publish.status), `게시 경로가 없어야 함: ${publish.status}`);
+});
+
+test('허용: 2회 수정 뒤에도 실패하면 사람 검토 필요와 남은 실패 항목', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const res = await postPress({ facts: `${pressFacts('safety')}\n비고: 고집`, rules: pressSample.rules }, { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'review');
+  assert.deepEqual(body.results.filter((r) => !r.pass).map((r) => r.key), ['hype']);
+});
+
+test('거부: 보도자료 API 빈 입력 422(AI 호출 없음), 로그인 없음 401, 다른 사이트 403, GET 405, 화면은 로그인 필요', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = aiRequests.length;
+  assert.equal((await postPress({ facts: '', rules: pressSample.rules }, { cookie })).status, 422);
+  assert.equal((await postPress({ facts: '사실', rules: '' }, { cookie })).status, 422);
+  assert.equal(aiRequests.length, before);
+  assert.equal((await postPress({ facts: '사실', rules: '규칙' })).status, 401);
+  assert.equal((await postPress({ facts: '사실', rules: '규칙' }, { cookie, origin: 'https://evil.example.com' })).status, 403);
+  assert.equal((await fetch(`${BASE}/api/press`, { headers: { Cookie: cookie } })).status, 405);
+  assert.equal((await fetch(`${BASE}/press`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
+  const page = await fetch(`${BASE}/press`, { headers: { Accept: 'text/html', Cookie: cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /보도자료 초안/);
+});
+
+// ---------- 현장 질의 Agent (AI 는 고정 응답 서버) ----------
+
+async function postAsk(body, { cookie, origin = BASE } = {}) {
+  return fetch(`${BASE}/api/ask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+test('허용: 질문 → 필요한 도구만 호출(strict 도구 3개 제공) → 답변 + 사용한 도구·조회 조건 표', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = aiRequests.length;
+  const res = await postAsk({ question: '골조 공정률이랑 11월 24일 미완료 점검 항목은?' }, { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'ok');
+  assert.deepEqual(body.tools_used.map((u) => [u.tool, u.condition, u.rows]), [['get_progress', '공종 = 골조', 1], ['get_inspections', '날짜 = 2026-11-24', 3]]);
+  const sent = aiRequests.slice(before);
+  assert.equal(sent.length, 3);
+  assert.ok(sent.every((r) => r.params.tools.length === 3 && r.params.tools.every((t) => t.strict === true)));
+});
+
+test('허용: 도구 호출 5회를 넘으면 멈추고 찾은 내용으로 답한다', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const body = await (await postAsk({ question: '반복 출역 조회' }, { cookie })).json();
+  assert.equal(body.status, 'limit');
+  assert.equal(body.tools_used.length, 5);
+});
+
+test('거부: 질의 API 빈 질문 422(AI 호출 없음), 로그인 없음 401, 다른 사이트 403, GET 405, 화면은 로그인 필요', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = aiRequests.length;
+  assert.equal((await postAsk({ question: '' }, { cookie })).status, 422);
+  assert.equal(aiRequests.length, before);
+  assert.equal((await postAsk({ question: '출역 인원' })).status, 401);
+  assert.equal((await postAsk({ question: '출역 인원' }, { cookie, origin: 'https://evil.example.com' })).status, 403);
+  assert.equal((await fetch(`${BASE}/api/ask`, { headers: { Cookie: cookie } })).status, 405);
+  assert.equal((await fetch(`${BASE}/ask`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
+  const page = await fetch(`${BASE}/ask`, { headers: { Accept: 'text/html', Cookie: cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /현장 데이터 질의/);
+});
+
+// ---------- 작업 허가서 (AI 는 고정 응답 서버, 저장소는 로컬 D1) ----------
+
+const permitSamples = JSON.parse(readFileSync(path.join(root, 'public', 'permit-samples.json'), 'utf8')).samples;
+const permitForm = (id) => permitSamples.find((s) => s.id === id).form;
+
+function postPermitApi(url, body, { cookie, origin = BASE } = {}) {
+  return fetch(`${BASE}${url}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+const getPermitApi = (url, cookie) => fetch(`${BASE}${url}`, { headers: cookie ? { Cookie: cookie } : {} });
+
+test('허용: 신청 → Agent 검토 → 관리자 확인 대기에서 멈춤. 신청자는 결정 권한 없음(can_decide false)', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const res = await postPermitApi('/api/permits', { form: { ...permitForm('good-height'), status: '승인' } }, { cookie });
+  assert.equal(res.status, 201);
+  const { permit, can_decide } = await res.json();
+  assert.equal(permit.status, '관리자 확인 대기', '요청 본문의 status 는 무시한다');
+  assert.equal(permit.review.recommendation, '승인 권고');
+  assert.equal(permit.applicant, ALLOWED);
+  assert.equal(can_decide, false);
+  const list = await (await getPermitApi('/api/permits', cookie)).json();
+  assert.equal(list.can_decide, false);
+  assert.ok(list.permits.some((p) => p.id === permit.id));
+});
+
+test('거부: 관리자가 아니면 승인·반려 403, 상태는 그대로', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const { permit } = await (await postPermitApi('/api/permits', { form: permitForm('good-hot') }, { cookie })).json();
+  const res = await postPermitApi(`/api/permits/${permit.id}/decision`, { decision: '승인' }, { cookie });
+  assert.equal(res.status, 403);
+  assert.equal((await (await getPermitApi(`/api/permits/${permit.id}`, cookie)).json()).permit.status, '관리자 확인 대기');
+});
+
+test('허용: 관리자 승인(권고와 같음) → 이력에 누가·언제·권고·결정. 다시 결정하면 409', async () => {
+  const applicant = cookieFrom(await login(idToken()));
+  const boss = cookieFrom(await login(idToken({ email: MANAGER, sub: 'boss-1' })));
+  const { permit } = await (await postPermitApi('/api/permits', { form: permitForm('good-confined') }, { cookie: applicant })).json();
+  const view = await (await getPermitApi(`/api/permits/${permit.id}`, boss)).json();
+  assert.equal(view.can_decide, true);
+  const res = await postPermitApi(`/api/permits/${permit.id}/decision`, { decision: '승인' }, { cookie: boss });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.permit.status, '승인');
+  assert.equal(body.record.mismatch, false);
+  assert.equal((await postPermitApi(`/api/permits/${permit.id}/decision`, { decision: '반려', reason: '다시' }, { cookie: boss })).status, 409);
+  const { history } = await (await getPermitApi('/api/permits', boss)).json();
+  const h = history.find((x) => x.permit_id === permit.id);
+  assert.equal(h.decided_by, MANAGER);
+  assert.equal(h.recommendation, '승인 권고');
+  assert.equal(h.decision, '승인');
+  assert.ok(h.decided_at);
+});
+
+test('Agent 권고와 다른 결정은 사유가 있어야 하고, 사유를 이력에 남긴다', async () => {
+  const applicant = cookieFrom(await login(idToken()));
+  const boss = cookieFrom(await login(idToken({ email: MANAGER, sub: 'boss-1' })));
+  const { permit } = await (await postPermitApi('/api/permits', { form: permitForm('lacking-confined') }, { cookie: applicant })).json();
+  assert.equal(permit.review.recommendation, '보완 요청');
+  const noReason = await postPermitApi(`/api/permits/${permit.id}/decision`, { decision: '승인' }, { cookie: boss });
+  assert.equal(noReason.status, 422);
+  assert.equal((await noReason.json()).needs_reason, true);
+  const ok = await postPermitApi(`/api/permits/${permit.id}/decision`, { decision: '승인', reason: '현장에서 재측정 후 적정공기 확인' }, { cookie: boss });
+  assert.equal(ok.status, 200);
+  const { history } = await (await getPermitApi('/api/permits', boss)).json();
+  const h = history.find((x) => x.permit_id === permit.id);
+  assert.equal(h.mismatch, true);
+  assert.equal(h.reason, '현장에서 재측정 후 적정공기 확인');
+});
+
+test('거부: 허가서 API 로그인 없음 401, 다른 사이트 403, 잘못된 종류 422, 없는 허가서 404, 화면은 로그인 필요', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  assert.equal((await getPermitApi('/api/permits')).status, 401);
+  assert.equal((await postPermitApi('/api/permits', { form: permitForm('good-height') })).status, 401);
+  assert.equal((await postPermitApi('/api/permits', { form: permitForm('good-height') }, { cookie, origin: 'https://evil.example.com' })).status, 403);
+  assert.equal((await postPermitApi('/api/permits', { form: { type: '굴착' } }, { cookie })).status, 422);
+  assert.equal((await getPermitApi('/api/permits/P-none', cookie)).status, 404);
+  assert.equal((await fetch(`${BASE}/permit`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
+  const page = await fetch(`${BASE}/permit`, { headers: { Accept: 'text/html', Cookie: cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /작업 허가서 검토/);
 });
