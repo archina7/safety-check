@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#212121">
+  <title>계약서 검토 · 현장 안전점검</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/agent.css">
+  <style>
+    .row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0 0; }
+    input[type="number"] { width: 120px; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; color: var(--ink); }
+    input[type="number"]:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    #contract { min-height: 320px; }
+    .clause { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; background: #fff; }
+    .clause.conflict { border: 3px solid var(--bad); background: var(--bad-bg); }
+    .clause h3 { margin: 0 0 10px; font-size: 1rem; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+    .views { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    @media (min-width: 768px) { .views { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    .view { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; background: #fff; min-width: 0; }
+    .view h4 { margin: 0 0 6px; font-size: 0.875rem; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .view p { margin: 0 0 6px; font-size: 0.9375rem; }
+    .view .rec { color: var(--ink-soft); font-size: 0.875rem; }
+    .view.none { color: var(--ink-soft); font-size: 0.875rem; background: #f9fafb; }
+    .risk { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+    .risk-0 { background: var(--ok-bg); color: var(--ok); }
+    .risk-1 { background: #eff6ff; color: #1d4ed8; }
+    .risk-2 { background: var(--warn-bg); color: var(--warn); }
+    .risk-3 { background: var(--bad); color: #fff; }
+    .penalty { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+    .penalty dt { font-size: 0.8125rem; color: var(--ink-soft); }
+    .penalty dd { margin: 0; font-weight: 600; }
+    .list { margin: 4px 0 0; padding-left: 20px; font-weight: 400; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap head">
+      <h1>계약서 조항 검토</h1>
+      <a href="/">점검표로</a>
+    </div>
+  </header>
+
+  <main class="wrap grid">
+    <section class="card" aria-labelledby="in-title">
+      <h2 id="in-title">계약서 입력</h2>
+      <label class="lbl" for="contract">계약서 본문</label>
+      <textarea id="contract" placeholder="제1조(목적) …&#10;제2조(계약금액) …"></textarea>
+      <p class="hint">예시 계약서(합성)</p>
+      <div class="samples" id="samples"></div>
+      <div class="row">
+        <label class="lbl" for="days" style="margin:0">지체 일수 (선택)</label>
+        <input type="number" id="days" min="0" max="3650" step="1" inputmode="numeric" placeholder="예) 30">
+      </div>
+      <p class="hint">법무·원가·공정 세 관점이 서로의 결과를 보지 않고 동시에 검토합니다(시공자 입장). 같은 조항의 위험도가 두 단계 이상 차이 나면 '의견 충돌'로 세 의견을 나란히 보여 줍니다. 계약서에 없는 조항 번호를 근거로 든 의견은 버립니다. 지체상금 금액은 코드가 계산합니다.</p>
+      <button type="button" class="primary" id="run" style="margin-top:12px">세 관점으로 검토하기</button>
+    </section>
+
+    <section class="card" aria-labelledby="out-title" aria-live="polite">
+      <h2 id="out-title">결과</h2>
+      <div id="result"><p class="empty-state">아직 실행하지 않았습니다.</p></div>
+    </section>
+  </main>
+
+  <script src="/agent-ui.js" defer></script>
+  <script src="/contract.js" defer></script>
+</body>
+</html>

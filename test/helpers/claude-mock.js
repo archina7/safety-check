@@ -60,6 +60,43 @@ function draftComplaint(user) {
   return { draft, needs_check: list.length ? [] : ['해당 날짜 일정 없음'] };
 }
 
+// 계약서 검토 고정 응답: 관점(법무·원가·공정) × 계약서(일반 / 을에게 불리)
+const F = (clause, risk, issue, recommendation = '협상 시 문구 수정을 요청한다.') => ({ clause, risk, issue, recommendation });
+const CONTRACT_REVIEWS = {
+  balanced: {
+    법무: { findings: [F('제7조 제2항', '보통', '간접손해·특별손해를 배상 범위에서 빼 책임 범위가 제한된다.'), F('제8조', '낮음', '협의 후 현장 관할 법원으로 정해 절차가 명확하다.'), F('제6조', '낮음', '지연 책임을 귀책 사유로 나눈다.')], needs_check: [] },
+    원가: {
+      findings: [F('제4조', '보통', '지체상금률은 통상 수준이고 상한이 있다.'), F('제5조', '낮음', '발주자 요구 설계변경 비용은 발주자가 부담한다.')],
+      needs_check: [],
+      delay_penalty: { clause: '제4조', rate_quote: '계약금액의 1천분의 0.5', cap_quote: '계약금액의 100분의 30' },
+      contract_amount_quote: '금 12,000,000,000원',
+    },
+    공정: { findings: [F('제3조', '낮음', '공사기간이 명확하다.'), F('제6조 제2항', '보통', '지연 사유 발생 후 7일 안에 서면 통지해야 해 기한 관리가 필요하다.')], needs_check: [] },
+  },
+  onesided: {
+    법무: {
+      findings: [F('제7조', '매우높음', '간접손해까지 한도 없이 배상해야 한다.'), F('제8조', '높음', '발주자가 지정한 중재기관에 이의를 제기할 수 없다.'), F('제6조', '보통', '연장 승인이 발주자 재량이다.'), F('제15조', '높음', '하자담보 책임 기간이 길다.')],
+      needs_check: ['중재 조항 효력은 관련 법령 확인 필요'],
+    },
+    원가: {
+      findings: [F('제4조', '매우높음', '지체상금 상한이 없다.'), F('제5조', '매우높음', '사유와 관계없이 설계변경 비용을 을이 모두 부담한다.')],
+      needs_check: [],
+      delay_penalty: { clause: '제4조', rate_quote: '계약금액의 1천분의 1', cap_quote: '' },
+      contract_amount_quote: '금 8,500,000,000원',
+    },
+    공정: { findings: [F('제6조', '매우높음', '기상 악화·자재 수급 지연을 연장 사유로 인정하지 않는다.'), F('제3조', '높음', '준공일이 어떤 경우에도 바뀌지 않는다.')], needs_check: [] },
+  },
+};
+
+function reviewContract(system, user) {
+  const name = ['법무', '원가', '공정'].find((n) => system.includes(`${n} 관점에서만`));
+  if (name === '원가' && user.includes('원가실패')) return 'JSON 이 아닌 답';
+  if (name === '법무' && user.includes('조항번호없음')) return JSON.stringify({ findings: [F('', '높음', '근거 없음')], needs_check: [] });
+  const base = CONTRACT_REVIEWS[user.includes('모든 설계변경 비용') ? 'onesided' : 'balanced'][name];
+  if (name === '원가' && user.includes('문구조작')) return JSON.stringify({ ...base, delay_penalty: { ...base.delay_penalty, rate_quote: '계약금액의 1천분의 3' } });
+  return JSON.stringify(base);
+}
+
 function textOf(content) {
   return typeof content === 'string' ? content : (content || []).map((c) => c.text || '').join('');
 }
@@ -70,7 +107,9 @@ export function mockReply(params) {
   const user = textOf(params.messages?.at(-1)?.content);
   let text;
 
-  if (system.includes('민원 분류기')) {
+  if (system.includes('관점에서만 검토하는 검토자')) {
+    text = reviewContract(system, user);
+  } else if (system.includes('민원 분류기')) {
     text = JSON.stringify(classifyComplaint(user));
   } else if (system.includes('민원 담당자')) {
     text = JSON.stringify(draftComplaint(user));

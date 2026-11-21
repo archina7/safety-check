@@ -3,7 +3,7 @@
 // - /api/ 와 /config.js 는 로그인한 사용자 데이터라 절대 캐시하지 않는다.
 // - 화면 파일을 바꾸면 VERSION 을 올린다. 새 버전이 활성화되면 예전 캐시를 지운다.
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE_PREFIX = 'safety-check-shell-';
 const CACHE = `${CACHE_PREFIX}${VERSION}`;
 

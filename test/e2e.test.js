@@ -545,3 +545,48 @@ test('거부: 민원 API 빈 입력 422, 로그인 없음 401, 다른 사이트 
   assert.equal((await fetch(`${BASE}/api/complaint`, { headers: { Cookie: cookie } })).status, 405);
   assert.equal((await fetch(`${BASE}/complaint`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
 });
+
+// ---------- 계약서 세 관점 검토 (Claude 는 고정 응답 서버) ----------
+
+const contractSamples = JSON.parse(readFileSync(path.join(root, 'public', 'contract-samples.json'), 'utf8')).samples;
+const contractText = (id) => contractSamples.find((s) => s.id === id).contract;
+
+async function postContract(body, { cookie, origin = BASE } = {}) {
+  return fetch(`${BASE}/api/contract`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+test('허용: 계약서 → 세 관점 동시 검토(Agent 3회) → 의견 충돌·버린 의견·지체상금 계산', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = claudeRequests.length;
+  const res = await postContract({ contract: contractText('onesided'), delay_days: '10' }, { cookie });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, 'ok');
+  const sent = claudeRequests.slice(before);
+  assert.equal(sent.length, 3);
+  assert.ok(sent.every((r) => r.params.model === 'claude-opus-5-5'));
+  assert.equal(new Set(sent.map((r) => r.params.messages[0].content)).size, 1, '세 검토는 같은 계약서만 받는다');
+  const r6 = body.review.clauses.find((c) => c.clause === '제6조');
+  assert.equal(r6.conflict, true);
+  assert.deepEqual(body.discarded.map((d) => d.clause), ['제15조']);
+  assert.equal(body.delay_penalty.applied, '85,000,000원');
+});
+
+test('거부: 계약서 API 조항 없음 422(Claude 호출 없음), 로그인 없음 401, 다른 사이트 403, GET 405, 화면은 로그인 필요', async () => {
+  const cookie = cookieFrom(await login(idToken()));
+  const before = claudeRequests.length;
+  assert.equal((await postContract({ contract: '조항 번호가 없는 글' }, { cookie })).status, 422);
+  assert.equal((await postContract({ contract: contractText('balanced'), delay_days: -3 }, { cookie })).status, 422);
+  assert.equal(claudeRequests.length, before);
+  assert.equal((await postContract({ contract: contractText('balanced') })).status, 401);
+  assert.equal((await postContract({ contract: contractText('balanced') }, { cookie, origin: 'https://evil.example.com' })).status, 403);
+  assert.equal((await fetch(`${BASE}/api/contract`, { headers: { Cookie: cookie } })).status, 405);
+  assert.equal((await fetch(`${BASE}/contract`, { headers: { Accept: 'text/html' }, redirect: 'manual' })).status, 302);
+  const page = await fetch(`${BASE}/contract`, { headers: { Accept: 'text/html', Cookie: cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /계약서 조항 검토/);
+});
