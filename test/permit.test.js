@@ -156,6 +156,7 @@ test('대기 상태가 아니면 결정할 수 없다 (검토 실패로 Agent �
   const { id, permit } = await apply(env, { ...GOOD.고소, description: '검토실패' });
   assert.equal(permit.status, STATUS.REVIEWING);
   assert.match(permit.review_error, /스키마/);
+  assert.doesNotMatch(permit.review_error, /^검토하지 못했습니다/, '화면이 붙이는 앞말을 저장하지 않는다 (두 번 나오지 않게)');
   assert.equal(await store.decide(env, id, { decision: STATUS.APPROVED, by: 'boss@example.com', recommendation: null }), null);
   assert.equal((await store.getPermit(env, id)).status, STATUS.REVIEWING);
 });

@@ -162,7 +162,8 @@ export async function reviewPermit(form, env, { client = null } = {}) {
     }, log);
   } catch (e) {
     steps.push(stepRecord('2단계 검토 Agent', m.agent, { type: form.type }, started, log, { output: null, error: errorText(e) }));
-    return finish('error', { message: `검토하지 못했습니다: ${errorText(e)}` });
+    // 화면이 "검토하지 못했습니다: " 를 붙이므로 여기서는 원인만 저장한다 (붙이면 두 번 나온다)
+    return finish('error', { message: errorText(e) });
   }
   steps.push(stepRecord('2단계 검토 Agent', m.agent, { type: form.type }, started, log, { output: out }));
 
