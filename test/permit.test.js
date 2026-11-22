@@ -81,6 +81,15 @@ test('Agent 가 직접 승인 상태로 바꾸는 경로가 없다: 신청서에
   assert.equal((await store.getPermit(env, id)).status, STATUS.WAITING);
 });
 
+test('진행 중인 검토는 다시 시작하지 않는다: 실패(review_error)했거나 오래 멈춘 검토만 다시 검토', async () => {
+  const env = ENV();
+  const id = await store.createPermit(env, formOf(GOOD.고소), 'worker@example.com');
+  assert.equal(await store.startReview(env, id), true); // 신청 → Agent 검토
+  assert.equal(await store.startReview(env, id), false); // 진행 중 → 거부 (AI 를 두 번 부르지 않는다)
+  await store.saveReviewError(env, id, '오류');
+  assert.equal(await store.startReview(env, id), true); // 실패한 검토 → 다시 검토
+});
+
 test('Agent 출력 스키마에는 상태 값이 없다: 권고(승인 권고/보완 요청)만 고를 수 있다', () => {
   const out = SCHEMAS.output;
   assert.deepEqual(out.properties.recommendation.enum, RECOMMENDATIONS);

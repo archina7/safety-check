@@ -82,6 +82,12 @@ test('과장 표현은 입력에 같은 말이 있으면 근거가 있는 것으
   assert.equal(merged.results.find((r) => r.key === 'facts').pass, true);
 });
 
+test('과장 표현 글자를 품은 일반 낱말(최대한·최고경영자·11위)은 과장으로 보지 않는다', () => {
+  const draft = { title: '공사 착공', paragraphs: ['최대한 안전하게 시공한다고 최고경영자가 밝혔다. 시공능력평가 11위.'] };
+  assert.deepEqual(hypeWithoutBasis(draft, '착공'), []);
+  assert.deepEqual(hypeWithoutBasis({ title: '업계 1위', paragraphs: ['최대 규모'] }, '착공'), ['최대', '1위']);
+});
+
 test('형식 검사: 제목 한 줄, 본문 1~5문단, 기준 4개 모두', () => {
   assert.equal(validateDraft({ title: 't', paragraphs: ['a'], needs_check: [] }), null);
   assert.match(validateDraft({ title: 'a\nb', paragraphs: ['a'], needs_check: [] }), /한 줄/);

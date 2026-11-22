@@ -87,9 +87,14 @@ export function validateEvaluation(out) {
 
 const draftText = (d) => [d.title, ...d.paragraphs].join('\n');
 
+// 과장 표현 글자를 품고 있지만 과장이 아닌 말 ('최대한 빠르게', '최고경영자', '최대주주'). 검사 전에 지운다
+export const HYPE_EXCEPTIONS = ['최대한', '최고경영자', '최고책임자', '최고재무책임자', '최고기술책임자', '최고운영책임자', '최대주주'];
+
 export function hypeWithoutBasis(draft, facts) {
-  const text = draftText(draft);
-  return HYPE_WORDS.filter((w) => text.includes(w) && !facts.includes(w));
+  const text = HYPE_EXCEPTIONS.reduce((t, x) => t.split(x).join(' '), draftText(draft));
+  // '1위' 는 '11위'·'21위' 안의 글자는 치지 않는다
+  const has = (w) => (w === '1위' ? /(^|\D)1위/.test(text) : text.includes(w));
+  return HYPE_WORDS.filter((w) => has(w) && !facts.includes(w));
 }
 
 // 평가 Agent 의 판정에 코드 검사를 더한다. 코드가 문제를 찾으면 AI 가 통과로 봐도 실패

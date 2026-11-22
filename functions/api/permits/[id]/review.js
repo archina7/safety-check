@@ -8,7 +8,7 @@ export async function onRequestPost({ request, env, params, data }) {
   const id = String(params.id);
   if (!(await getPermit(env, id))) return json({ error: '허가서를 찾을 수 없습니다.' }, 404);
   const permit = await runReview(env, id);
-  if (!permit) return json({ error: '지금 상태에서는 다시 검토할 수 없습니다.' }, 409);
+  if (!permit) return json({ error: '검토가 아직 진행 중이거나, 지금 상태에서는 다시 검토할 수 없습니다.' }, 409);
   return json({ permit, can_decide: isManager(env, data.user.email) });
 }
 

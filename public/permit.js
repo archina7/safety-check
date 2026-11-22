@@ -140,8 +140,9 @@ function showPermit(p, canDecide) {
   );
   if (p.review) out.append(...reviewView(p.review).filter(Boolean));
   if (p.status === 'Agent 검토') {
-    out.append(el('div', { className: 'banner bad' }, [
-      el('div', { textContent: `검토하지 못했습니다${p.review_error ? `: ${p.review_error}` : ''}` }),
+    // review_error 가 없으면 아직 검토가 진행 중이다 (실패로 보이지 않게 한다)
+    out.append(el('div', { className: `banner ${p.review_error ? 'bad' : 'warn'}` }, [
+      el('div', { textContent: p.review_error ? `검토하지 못했습니다: ${p.review_error}` : 'Agent 가 검토하고 있습니다. 잠시 후 다시 열어 보세요. (오래 멈춰 있으면 다시 검토할 수 있습니다)' }),
       el('button', { type: 'button', textContent: '다시 검토하기', style: 'margin-top:8px', onclick: async (e) => { e.target.disabled = true; const d = await send(`/api/permits/${encodeURIComponent(p.id)}/review`, {}); if (d?.error) { e.target.disabled = false; alert(d.error); } else await refresh(p.id); } }),
     ]));
   }

@@ -154,7 +154,8 @@ export async function runSiteQa({ question } = {}, env, { client = null, now = D
       }, log));
     } catch (e) {
       steps.push(stepRecord(`AI 판단 ${turn}`, m.agent, { turn }, started, log, { output: null, error: errorText(e) }));
-      return finish(used.length ? 'limit' : 'error', { message: `답하지 못했습니다: ${errorText(e)}`, partial: results });
+      // API 오류는 도구 한도와 다른 실패다: 'error' 로 알리고, 지금까지 찾은 내용(partial)은 함께 돌려준다
+      return finish('error', { message: `답하지 못했습니다: ${errorText(e)}`, partial: results });
     }
     const calls = (res.output || []).filter((o) => o.type === 'function_call');
     steps.push(stepRecord(`AI 판단 ${turn}`, m.agent, { turn, tools: toolsOff ? '사용 안 함 (한도 도달)' : TOOLS.map((t) => t.name) }, started, log, {
@@ -194,10 +195,12 @@ export async function runSiteQa({ question } = {}, env, { client = null, now = D
     } catch {
       out = null;
     }
-    const bad = out ? validateAnswer(out) : 'JSON 아님';
+    // 잘림은 status: 'incomplete' 와 incomplete_details.reason 으로 확인한다 (CLAUDE.md)
+    const truncated = res.status === 'incomplete' ? `응답이 길이 제한에서 잘림 (${res.incomplete_details?.reason ?? 'incomplete'})` : null;
+    const bad = truncated || (out ? validateAnswer(out) : 'JSON 아님');
     if (bad) {
       if (formatRetried) {
-        return finish(used.length ? 'limit' : 'error', { message: `응답이 스키마에 맞지 않습니다: ${bad}`, partial: results });
+        return finish('error', { message: `응답이 스키마에 맞지 않습니다: ${bad}`, partial: results });
       }
       formatRetried = true;
       input.push({ role: 'user', content: `<note>이전 응답이 형식 규칙을 어겼습니다: ${bad}. 스키마에 맞게 다시 답하세요.</note>` });

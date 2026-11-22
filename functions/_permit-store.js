@@ -60,14 +60,19 @@ function toPermit(row) {
 }
 
 // 상태를 from → to 로 바꾼다. 이전 상태가 맞을 때만 바뀐다 (바뀐 줄 수로 확인)
-async function move(d, id, from, to, sets = {}) {
+// guard: 상태 외에 더 걸 조건 { sql, binds } (예: 진행 중인 검토는 다시 시작하지 않기)
+async function move(d, id, from, to, sets = {}, guard = null) {
   const keys = Object.keys(sets);
   const assign = ['status = ?', 'updated_at = ?', ...keys.map((k) => `${k} = ?`)].join(', ');
   const fromList = [].concat(from);
-  const res = await d.prepare(`UPDATE permits SET ${assign} WHERE id = ? AND status IN (${fromList.map(() => '?').join(', ')})`)
-    .bind(to, now(), ...keys.map((k) => sets[k]), id, ...fromList).run();
+  const extra = guard ? ` AND (${guard.sql})` : '';
+  const res = await d.prepare(`UPDATE permits SET ${assign} WHERE id = ? AND status IN (${fromList.map(() => '?').join(', ')})${extra}`)
+    .bind(to, now(), ...keys.map((k) => sets[k]), id, ...fromList, ...(guard?.binds || [])).run();
   return (res.meta?.changes ?? 0) === 1;
 }
+
+// 검토가 이 시간 넘게 'Agent 검토'에 머물고 오류도 없으면 중단된 것으로 본다 (AI 호출 90초 × 2회보다 길게)
+export const STALE_REVIEW_MS = 5 * 60 * 1000;
 
 export async function createPermit(env, form, applicant) {
   const d = await db(env);
@@ -78,8 +83,14 @@ export async function createPermit(env, form, applicant) {
   return id;
 }
 
+// 'Agent 검토'에서 다시 시작하는 것은 검토가 실패했거나(review_error) 중단된(오래된) 경우뿐이다.
+// 진행 중인 검토를 또 시작하면 AI 를 두 번 부르고, 늦게 끝난 쪽 결과는 버려진다
 export async function startReview(env, id) {
-  return move(await db(env), id, [STATUS.APPLIED, STATUS.REVIEWING], STATUS.REVIEWING, { review_error: null });
+  const stale = new Date(Date.now() - STALE_REVIEW_MS).toISOString();
+  return move(await db(env), id, [STATUS.APPLIED, STATUS.REVIEWING], STATUS.REVIEWING, { review_error: null }, {
+    sql: 'status = ? OR review_error IS NOT NULL OR updated_at < ?',
+    binds: [STATUS.APPLIED, stale],
+  });
 }
 
 // Agent 검토 결과 저장: 다음 상태는 언제나 '관리자 확인 대기'

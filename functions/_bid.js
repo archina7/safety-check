@@ -70,7 +70,9 @@ export function daysLeft(deadlineAt, now) {
 }
 
 export function parseBidTable(text) {
-  const lines = String(text ?? '').split(/\r?\n/).filter((l) => l.trim());
+  // 오류 메시지의 줄 번호는 붙여 넣은 글의 실제 줄 번호(빈 줄·구분선 포함)로 쓴다
+  const numbered = String(text ?? '').split(/\r?\n/).map((l, n) => ({ l, n: n + 1 })).filter((x) => x.l.trim());
+  const lines = numbered.map((x) => x.l);
   if (lines.length < 2) return { error: '표에 머리글과 공고가 한 줄 이상 있어야 합니다' };
   const sep = lines[0].includes('\t') ? '\t' : lines[0].includes('|') ? '|' : null;
   if (!sep) return { error: '엑셀에서 표를 복사해 붙여 넣거나, 칸을 | 로 나눠 주세요' };
@@ -85,7 +87,8 @@ export function parseBidTable(text) {
   const head = split(lines[0]).map(headerKey);
   const missing = REQUIRED.filter((k) => !head.includes(k));
   if (missing.length) return { error: `머리글에 ${missing.map((k) => LABEL[k]).join('·')} 칸이 없습니다` };
-  const body = lines.slice(1).filter((l) => !/^[\s|:-]+$/.test(l)); // 마크다운 표의 구분선은 건너뛴다
+  const bodyRows = numbered.slice(1).filter((x) => !/^[\s|:-]+$/.test(x.l)); // 마크다운 표의 구분선은 건너뛴다
+  const body = bodyRows.map((x) => x.l);
   if (body.length > MAX_ROWS) return { error: `공고는 ${MAX_ROWS}건까지 넣을 수 있습니다` };
 
   const bids = [];
@@ -94,7 +97,7 @@ export function parseBidTable(text) {
     const cells = split(line);
     const row = {};
     head.forEach((k, j) => { if (k && row[k] === undefined) row[k] = cells[j] ?? ''; });
-    const where = `${i + 2}번째 줄`;
+    const where = `${bodyRows[i].n}번째 줄`;
     for (const k of REQUIRED) if (!row[k]) return { error: `${where}: ${LABEL[k]}이 비어 있습니다` };
     if (Object.values(row).some((v) => v.length > MAX_CELL_CHARS)) return { error: `${where}: 칸 하나는 ${MAX_CELL_CHARS}자까지입니다` };
     if (ids.has(row.id)) return { error: `${where}: 공고번호 ${row.id} 가 두 번 나옵니다` };
